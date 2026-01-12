@@ -180,10 +180,11 @@ Server → Coordinator:
 ```
 
 **Periodic Heartbeat:**
-- Short UDP messages every ~30 seconds
+- Tiny UDP messages every ~30 seconds (keepalive)
+- Identified by IP:port combination only
+- No signature or timestamp for keepalive (minimal bandwidth)
 - Keeps UDP ports open for NAT traversal
-- Refreshes challenge periodically
-- Minimal bandwidth usage
+- Challenge refresh every ~10 minutes with full signed message
 
 ### Challenge-Response Authentication
 
@@ -349,7 +350,8 @@ python3 -m http.server 8080
   "serverName": "my-home-server",
   "privateKeyPath": "./keys/private.key",
   "publicKeyPath": "./keys/public.key",
-  "challengeRefreshInterval": 3600000,
+  "keepaliveInterval": 30000,
+  "challengeRefreshInterval": 600000,
   "sharedSecret": "password-for-challenge-answer",
   "services": {
     "vnc": {
@@ -384,7 +386,8 @@ python3 -m http.server 8080
   "publicKeyPath": "./keys/coordinator-public.key",
   "maxServers": 1000,
   "serverTimeout": 300000,
-  "heartbeatInterval": 30000
+  "keepaliveInterval": 30000,
+  "challengeRefreshInterval": 600000
 }
 ```
 
@@ -429,15 +432,23 @@ Server **initiates** UDP connection to coordinator using ECDH.
 }
 ```
 
-**Heartbeat Message (every ~30s):**
+**Tiny Keepalive Heartbeat (every ~30s):**
+```javascript
+// Minimal message, identified by IP:port only
+{
+  type: 'ping'
+}
+```
+
+**Challenge Refresh Heartbeat (every ~10 minutes):**
 ```javascript
 {
   type: 'heartbeat',
   serverPublicKey: 'hex-encoded-ecdsa-public-key',
   timestamp: Date.now(),
   payload: {
-    refreshChallenge: 'new-challenge-hex', // optional, when refreshing
-    challengeAnswerHash: 'new-hash' // optional
+    refreshChallenge: 'new-challenge-hex',
+    challengeAnswerHash: 'new-expected-hash'
   },
   signature: 'hex-encoded-ecdsa-signature'
 }

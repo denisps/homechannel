@@ -70,10 +70,11 @@ The project consists of three independent components:
 - **Server generates challenge** for each connection attempt (included in payload to coordinator)
 - **Client must answer challenge correctly** to proceed (verifies client knows password)
 - **Purpose**: Prevents brute-force attacks and DDoS on the server
-- **Challenge refresh**: Coordinator and server periodically exchange short UDP messages to:
-  - Keep UDP ports open (NAT hole-punching)
-  - Refresh challenges from time to time
-- Challenge is short to minimize bandwidth
+- **Challenge refresh**: Every 10 minutes via full heartbeat message
+- **Keepalive heartbeat**: Tiny UDP messages every ~30 seconds to keep NAT ports open
+  - Identified by IP:port combination only
+  - No signature or timestamp (minimal overhead)
+  - Only challenge refresh heartbeats (every 10 min) include signature and new challenge
 
 #### WebRTC Signaling Flow
 1. Server registers with coordinator, includes challenge for clients
@@ -194,13 +195,20 @@ The project consists of three independent components:
   signature: 'hex-encoded-ecdsa-signature'
 }
 
-// Periodic keepalive (every ~30s)
+// Tiny keepalive heartbeat (every ~30s)
+// Identified by IP:port only, no signature or timestamp
+{
+  type: 'ping'
+}
+
+// Challenge refresh heartbeat (every ~10 minutes)
 {
   type: 'heartbeat',
   serverPublicKey: 'hex-encoded-ecdsa-public-key',
   timestamp: Date.now(),
   payload: {
-    newChallenge: 'refreshed-challenge' // optional
+    newChallenge: 'refreshed-challenge-hex',
+    challengeAnswerHash: 'new-expected-hash'
   },
   signature: 'hex-encoded-ecdsa-signature'
 }
