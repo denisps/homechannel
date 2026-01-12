@@ -1,282 +1,97 @@
 # HomeChannel Copilot Instructions
 
 ## Project Overview
-HomeChannel is a minimal, dependency-light WebRTC datachannel solution for remote access to home systems (VNC, SSH, file access). The project is written entirely in JavaScript with no transpilation or bundling required.
+HomeChannel is a minimal-dependency WebRTC datachannel solution for remote access to home systems (VNC, SSH, file access). Pure JavaScript, no transpilation or bundling.
+
+## Core Principles
+
+- **Pure JavaScript**: ES modules for client, CommonJS/ES modules for Node.js
+- **Zero Build Tools**: No transpilation, bundling, or compilation
+- **Minimal Dependencies**: Node.js built-in modules only
+- **No WebSockets**: HTTP/HTTPS polling for client-coordinator
+- **Alpha Status**: API and protocol subject to change
 
 ## Project Structure
 
-The project consists of three independent components:
+```
+homechannel/
+├── client/          # Browser (vanilla JS, ES modules)
+├── server/          # Home Node.js (UDP to coordinator)
+├── coordinator/     # Public Node.js (UDP + HTTPS)
+└── docs/            # Detailed documentation
+```
 
-### 1. Client (`/client`)
-- **Runtime**: Browser (vanilla JavaScript)
-- **Communication**: HTTPS with coordinator (no WebSockets)
-- **Purpose**: Browser-based interface for initiating and managing WebRTC connections
+## Documentation
 
-### 2. Server (`/server`)
-- **Runtime**: Node.js
-- **Communication**: UDP with coordinator
-- **Purpose**: Home-side endpoint that provides access to local services
+**Refer to these files for detailed specs:**
+- `README.md` - Project overview and quick start
+- `docs/PROTOCOL.md` - Protocol specifications
+- `docs/SECURITY.md` - Security architecture
+- `docs/ARCHITECTURE.md` - System design
+- `coordinator/README.md` - Coordinator implementation details
 
-### 3. Coordinator (`/coordinator`)
-- **Runtime**: Node.js
-- **Communication**: 
-  - UDP with server
-  - HTTPS with client (no WebSockets)
-- **Purpose**: Signaling and coordination between clients and servers
+## Security Model
 
-## Technology Constraints
+### Three-Party ECDSA Keys
+- **Coordinator**: Has own ECDSA key pair (trusted by both)
+- **Servers**: Identified by ECDSA public keys
+- **Client**: Verifies signatures from coordinator and server
 
-### Core Requirements
-- **Language**: Pure JavaScript (ES modules preferred)
-- **Dependencies**: Minimal - only essential packages
-- **No Transpilation**: Code should run directly without build steps where possible
-- **No WebSockets**: Use HTTP/HTTPS polling or long-polling for client-coordinator communication
-- **No Bundling**: Client code should work with native ES modules
+### Communication Security
+- **Registration**: ECDSA-signed, unencrypted (initial ECDH)
+- **Ongoing UDP**: AES-256-CTR encrypted using expectedAnswer as key
+- **Challenge-Response**: Prevents brute-force and DDoS
 
-### Allowed Dependencies Examples
-- Node.js built-in modules (`crypto`, `https`, `dgram`, `fs`, etc.)
-- Essential cryptographic libraries if needed beyond Node.js crypto
-- Minimal HTTP frameworks (e.g., `express` only if absolutely necessary)
+### Encryption Details
+- **AES Key**: Derived from expectedAnswer via SHA-256
+- **IV**: Random 16 bytes per message
+- **HMAC**: SHA-256 for challenge refresh
 
-## Architecture Patterns
+## Coordinator State
 
-### Communication Protocols
-
-#### Server ↔ Coordinator (UDP)
-- Use Node.js `dgram` module
-- Implement packet framing for reliability
-- Handle packet loss and retransmission if necessary
-- Keep overhead minimal
-
-#### Client ↔ Coordinator (HTTPS)
-- Use standard HTTP methods (GET/POST)
-- Implement polling or long-polling for updates
-- No WebSocket connections
-- Keep connection overhead minimal
-
-### Security Model
-
-#### ECDSA Signing and Public Key Infrastructure
-- **Coordinator** has its own ECDSA key pair (public key accepted and saved by both clients and servers)
-- **Servers** identified by their ECDSA public keys
-- **Server initiates** communication with coordinator using ECDH (Elliptic Curve Diffie-Hellman)
-- Use P-256 (secp256r1) curve for compatibility
-- **Initial registration** is ECDSA-signed and verified (unencrypted)
-- **Ongoing communication** uses expectedAnswer as shared secret key (derived from ECDH)
-  - All messages after registration are AES-CTR encrypted using expectedAnswer
-  - Avoids round-trips and excessive state
-  - Server identified by IP:port combination
-
-#### Challenge-Response Authentication
-- **Server generates challenge** for each connection attempt (included in payload to coordinator)
-- **Client must answer challenge correctly** to proceed (verifies client knows password)
-- **Purpose**: Prevents brute-force attacks and DDoS on the server
-- **Challenge refresh**: Every 10 minutes using expectedAnswer as secret key
-- **Keepalive heartbeat**: Tiny UDP messages every ~30 seconds to keep NAT ports open
-  - Identified by IP:port combination only
-  - No signature or timestamp (minimal overhead)
-  - AES-CTR encrypted using expectedAnswer as key
-  - Challenge refresh uses HMAC for authentication (no ECDSA signature needed)
-
-#### WebRTC Signaling Flow
-1. Server registers with coordinator, includes challenge for clients
-2. Client connects to coordinator, provides challenge answer
-3. If challenge answer is correct, coordinator delivers client's payload (SDP + all ICE candidates) to server
-4. Server replies with its own signed payload (SDP + all ICE candidates)
-5. Coordinator delivers server payload to client
-6. **Direct datachannel** established between client and server (peer-to-peer)
-
-#### Coordinator State Management
-- **Memory-compact server registry** using server ECDSA public keys as map keys
-- Each entry contains only:
-  - IP:port (for identifying UDP messages)
-  - Current challenge
-  - Expected answer (used as shared secret for ongoing communication)
-  - Timestamp (for expiry)
-- **Periodic cleanup** of expired server records
-- **Separate connection log** for rate limiting connection attempts
-- Minimal state reduces memory usage and improves scalability
-
-## Coding Standards
-
-### JavaScript Style
-- Use modern ES6+ features
-- Use `const` and `let`, never `var`
-- Use arrow functions where appropriate
-- Use template literals for string formatting
-- Use async/await over raw Promises
-- Use destructuring where it improves readability
-
-### Module System
-- Use ES modules (`import`/`export`) for client code
-- Use CommonJS (`require`/`module.exports`) or ES modules for Node.js code
-- Keep module dependencies clear and minimal
-
-### Error Handling
-- Always handle errors explicitly
-- Use try/catch with async/await
-- Provide meaningful error messages
-- Log errors appropriately (console.error in client, proper logging in server)
-
-### Code Organization
-- Keep files focused and small
-- Separate concerns clearly
-- Use descriptive file and function names
-- Avoid deep nesting
-
-### Documentation
-- Document complex algorithms
-- Explain non-obvious design decisions
-- Keep README files up to date
-- Use JSDoc comments for public APIs
-
-## Security Guidelines
-
-### Cryptographic Operations
-- Never implement custom crypto algorithms
-- Use established libraries or Node.js crypto module
-- Validate all signatures before trusting data
-- Use constant-time comparison for sensitive data
-
-### Input Validation
-- Validate all network inputs
-- Sanitize data before use
-- Implement rate limiting where appropriate
-- Check message sizes and bounds
-
-### Key Management
-- Never commit private keys to repository
-- Store keys securely on filesystem with appropriate permissions
-- Implement key rotation mechanisms
-- Document key generation process
-
-## Performance Guidelines
-
-### Resource Usage
-- Minimize memory allocation
-- Avoid unnecessary copying of data
-- Use streams for large data transfers
-- Implement backpressure handling
-
-### Network Efficiency
-- Batch operations where possible
-- Implement connection pooling if needed
-- Use compression for large payloads
-- Minimize protocol overhead
-
-## Testing Guidelines
-
-### Test Structure
-- Write tests for critical paths
-- Test error conditions
-- Test cryptographic operations thoroughly
-- Test network protocol edge cases
-
-### Test Files
-- Place tests near the code they test
-- Use descriptive test names
-- Keep tests independent
-- Mock external dependencies
-
-## Development Workflow
-
-### Before Committing
-- Test your changes locally
-- Verify no unnecessary dependencies added
-- Check for console.log statements (remove or make configurable)
-- Ensure code follows style guidelines
-
-### Pull Requests
-- Keep changes focused and small
-- Provide clear description
-- Update documentation as needed
-- Ensure tests pass
-
-## Common Patterns
-
-### UDP Message Format
+Memory-compact registry:
 ```javascript
-// Server -> Coordinator registration message (UNENCRYPTED - initial ECDH)
-{
-  type: 'register',
-  serverPublicKey: 'hex-encoded-ecdsa-public-key',
-  timestamp: Date.now(),
-  payload: {
-    challenge: 'short-random-challenge-for-client',
-    challengeAnswer: 'expected-answer-hash'
-  },
-  signature: 'hex-encoded-ecdsa-signature'
+Map<serverPublicKey, {
+  ipPort: string,          // For UDP routing
+  challenge: string,       // 16 bytes hex
+  expectedAnswer: string,  // SHA-256 hash, also AES key source
+  timestamp: number        // For cleanup
+}>
+```
+
+- Periodic cleanup of expired servers
+- Separate connection log for rate limiting
+
+## Code Examples
+
+### AES-CTR Encryption
+```javascript
+function deriveAESKey(expectedAnswer) {
+  const hash = crypto.createHash('sha256');
+  hash.update(expectedAnswer);
+  return hash.digest(); // 256-bit key
 }
 
-// All messages below are AES-CTR ENCRYPTED using expectedAnswer as key
-
-// Tiny keepalive heartbeat (every ~30s)
-// Identified by IP:port only, no signature or timestamp
-{
-  type: 'ping'
+function encryptAES(data, key) {
+  const iv = crypto.randomBytes(16);
+  const cipher = crypto.createCipheriv('aes-256-ctr', key, iv);
+  const dataBuffer = Buffer.from(JSON.stringify(data), 'utf8');
+  const encrypted = Buffer.concat([cipher.update(dataBuffer), cipher.final()]);
+  return Buffer.concat([iv, encrypted]).toString('hex');
 }
 
-// Challenge refresh heartbeat (every ~10 minutes)
-// Uses expectedAnswer as secret key, no ECDSA signature needed
-{
-  type: 'heartbeat',
-  payload: {
-    newChallenge: 'refreshed-challenge-hex',
-    challengeAnswerHash: 'new-expected-hash'
-  },
-  hmac: 'hmac-using-expectedAnswer-as-key'
-}
-
-// Server -> Coordinator: SDP answer + all ICE candidates
-{
-  type: 'answer',
-  serverPublicKey: 'hex-encoded-ecdsa-public-key',
-  timestamp: Date.now(),
-  payload: {
-    sessionId: 'client-session-id',
-    sdp: { type: 'answer', sdp: '...' },
-    candidates: [/* all ICE candidates */]
-  },
-  signature: 'hex-encoded-ecdsa-signature'
+function decryptAES(encryptedHex, key) {
+  const buffer = Buffer.from(encryptedHex, 'hex');
+  const iv = buffer.slice(0, 16);
+  const encrypted = buffer.slice(16);
+  const decipher = crypto.createDecipheriv('aes-256-ctr', key, iv);
+  const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
+  return JSON.parse(decrypted.toString('utf8'));
 }
 ```
 
-### HTTPS Polling Pattern
+### ECDSA Signing
 ```javascript
-// Client connects to server through coordinator
-async function connectToServer(serverPublicKey, challengeAnswer, sdp, candidates) {
-  try {
-    const response = await fetch('/api/connect', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        serverPublicKey: serverPublicKey,
-        challengeAnswer: challengeAnswer,
-        payload: {
-          sdp: sdp, // WebRTC offer
-          candidates: candidates // All gathered ICE candidates
-        },
-        signature: 'client-signature-if-needed'
-      })
-    });
-    const data = await response.json();
-    
-    // Verify coordinator and server signatures
-    if (verifyCoordinatorSignature(data) && verifyServerSignature(data.serverPayload)) {
-      // Use server's SDP answer and ICE candidates
-      return data.serverPayload;
-    }
-  } catch (error) {
-    console.error('Connection error:', error);
-  }
-}
-```
-
-### ECDSA Signing and ECDH Pattern
-```javascript
-const crypto = require('crypto');
-
-// ECDSA signing (for payloads)
 function signData(data, privateKey) {
   const sign = crypto.createSign('SHA256');
   sign.update(JSON.stringify(data));
@@ -288,83 +103,126 @@ function verifySignature(data, signature, publicKey) {
   verify.update(JSON.stringify(data));
   return verify.verify(publicKey, signature, 'hex');
 }
+```
 
-// ECDH for initial server-coordinator communication
-function performECDH(privateKey, coordinatorPublicKey) {
-  const ecdh = crypto.createECDH('prime256v1'); // P-256 curve
-  ecdh.setPrivateKey(privateKey);
-  const sharedSecret = ecdh.computeSecret(coordinatorPublicKey);
-  return sharedSecret;
-}
-
-// Challenge-response pattern
-function generateChallenge() {
-  return crypto.randomBytes(16).toString('hex'); // Short challenge
-}
-
-function hashChallengeAnswer(challenge, password) {
-  const hash = crypto.createHash('sha256');
-  hash.update(challenge + password);
-  return hash.digest('hex');
-}
-
-// HMAC using expectedAnswer as shared secret (for ongoing server-coordinator communication)
-function createHMAC(data, expectedAnswer) {
-  const hmac = crypto.createHmac('sha256', expectedAnswer);
+### HMAC
+```javascript
+function createHMAC(data, secret) {
+  const hmac = crypto.createHmac('sha256', secret);
   hmac.update(JSON.stringify(data));
   return hmac.digest('hex');
 }
 
-function verifyHMAC(data, hmacValue, expectedAnswer) {
-  const expected = createHMAC(data, expectedAnswer);
-  return crypto.timingSafeEqual(Buffer.from(hmacValue, 'hex'), Buffer.from(expected, 'hex'));
-}
-
-// AES-CTR encryption using expectedAnswer as key (for UDP messages after registration)
-function deriveAESKey(expectedAnswer) {
-  const hash = crypto.createHash('sha256');
-  hash.update(expectedAnswer);
-  return hash.digest(); // 256-bit key
-}
-
-function encryptAES(data, key) {
-  const iv = crypto.randomBytes(16); // Random IV
-  const cipher = crypto.createCipheriv('aes-256-ctr', key, iv);
-  const dataBuffer = Buffer.from(JSON.stringify(data), 'utf8');
-  const encrypted = Buffer.concat([cipher.update(dataBuffer), cipher.final()]);
-  return Buffer.concat([iv, encrypted]).toString('hex'); // IV + encrypted
-}
-
-function decryptAES(encryptedHex, key) {
-  const buffer = Buffer.from(encryptedHex, 'hex');
-  const iv = buffer.slice(0, 16); // Extract IV
-  const encrypted = buffer.slice(16);
-  const decipher = crypto.createDecipheriv('aes-256-ctr', key, iv);
-  const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
-  return JSON.parse(decrypted.toString('utf8'));
+function verifyHMAC(data, hmacValue, secret) {
+  const expected = createHMAC(data, secret);
+  return crypto.timingSafeEqual(
+    Buffer.from(hmacValue, 'hex'),
+    Buffer.from(expected, 'hex')
+  );
 }
 ```
 
+## UDP Message Format
+
+**Registration (unencrypted)**:
+```javascript
+{
+  type: 'register',
+  serverPublicKey: 'hex-ecdsa-public-key',
+  timestamp: Date.now(),
+  payload: { challenge, challengeAnswerHash },
+  signature: 'hex-ecdsa-signature'
+}
+```
+
+**All other messages (AES-CTR encrypted)**:
+```javascript
+{ type: 'ping' }  // Keepalive
+
+{ type: 'heartbeat', payload: {...}, hmac: '...' }  // Challenge refresh
+
+{ type: 'answer', ...payload, signature: '...' }  // SDP answer
+```
+
+## Coding Standards
+
+### JavaScript Style
+- Use `const` and `let`, never `var`
+- Arrow functions where appropriate
+- Template literals for strings
+- Async/await over Promises
+- Destructuring for readability
+
+### Error Handling
+- Always handle errors explicitly
+- Use try/catch with async/await
+- Provide meaningful error messages
+- Log appropriately
+
+### Module System
+- ES modules for client
+- ES modules or CommonJS for Node.js
+- Clear dependencies
+
+### Code Organization
+- Small, focused files
+- Separate concerns
+- Descriptive names
+- Avoid deep nesting
+
+## Security Guidelines
+
+- Never implement custom crypto
+- Use Node.js crypto module
+- Validate all signatures
+- Sanitize all inputs
+- Timing-safe comparisons for secrets
+- File permissions 600 for private keys
+
+## Performance Guidelines
+
+- Minimize memory allocation
+- Avoid unnecessary copying
+- Use streams for large data
+- Implement backpressure
+
+## Testing
+
+- Test critical paths
+- Test error conditions
+- Test crypto operations thoroughly
+- Test protocol edge cases
+- Keep tests independent
+- Mock external dependencies
+
+## Development Workflow
+
+- Test changes locally
+- No console.log in production code
+- Follow style guidelines
+- Keep changes focused and small
+- Update documentation as needed
+
 ## Forbidden Practices
 
-- ❌ Adding heavy frameworks (React, Vue, Angular, etc.)
-- ❌ Using WebSockets
-- ❌ Adding build tools unless absolutely necessary (webpack, rollup, etc.)
-- ❌ Using TypeScript (pure JavaScript only)
-- ❌ Implementing custom cryptography
-- ❌ Committing sensitive keys or credentials
-- ❌ Using synchronous file operations in server code
-- ❌ Blocking the event loop with CPU-intensive operations
+❌ Heavy frameworks (React, Vue, Angular, etc.)
+❌ WebSockets
+❌ Build tools (webpack, rollup, etc.)
+❌ TypeScript
+❌ Custom cryptography
+❌ Committing secrets
+❌ Synchronous file operations in server code
+❌ Blocking event loop
 
 ## Recommended Practices
 
-- ✅ Use native Node.js modules
-- ✅ Keep dependencies minimal and audited
-- ✅ Write clear, self-documenting code
-- ✅ Implement proper error handling
-- ✅ Use ECDSA for all signature operations
-- ✅ Validate and sanitize all inputs
-- ✅ Write tests for critical functionality
-- ✅ Document API endpoints and message formats
-- ✅ Use semantic versioning
-- ✅ Keep the codebase simple and maintainable
+✅ Node.js built-in modules
+✅ Minimal, audited dependencies
+✅ Clear, self-documenting code
+✅ Proper error handling
+✅ ECDSA for signatures
+✅ AES-CTR for encryption
+✅ Input validation and sanitization
+✅ Tests for critical functionality
+✅ Semantic versioning
+✅ Simple, maintainable code
