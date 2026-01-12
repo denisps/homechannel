@@ -78,9 +78,22 @@ export function verifyHMAC(data, hmacValue, secret) {
 }
 
 /**
- * Perform ECDH key exchange (for initial handshake)
+ * Generate ECDH key pair for key exchange
  */
-export function performECDH(privateKey, peerPublicKey) {
+export function generateECDHKeyPair() {
+  const ecdh = crypto.createECDH('prime256v1');
+  ecdh.generateKeys();
+  return {
+    publicKey: ecdh.getPublicKey(),
+    privateKey: ecdh.getPrivateKey(),
+    ecdh
+  };
+}
+
+/**
+ * Compute ECDH shared secret
+ */
+export function computeECDHSecret(privateKey, peerPublicKey) {
   const ecdh = crypto.createECDH('prime256v1');
   ecdh.setPrivateKey(privateKey);
   return ecdh.computeSecret(peerPublicKey);
@@ -153,75 +166,145 @@ export function decryptAES(encryptedBuffer, key) {
 }
 
 /**
- * Encode binary registration message
- * Format: [pubKeyLen(2)][pubKey][timestamp(8)][challenge(16)][answerHash(32)][sigLen(2)][signature]
+ * Sign binary data with ECDSA (for ECDH keys)
  */
-export function encodeBinaryRegistration(serverPublicKey, timestamp, challenge, challengeAnswerHash, signature) {
-  // Convert hex strings to buffers
-  const pubKeyBuffer = Buffer.from(serverPublicKey, 'utf8');
-  const challengeBuffer = Buffer.from(challenge, 'hex');
-  const answerHashBuffer = Buffer.from(challengeAnswerHash, 'hex');
-  const signatureBuffer = Buffer.from(signature, 'hex');
+export function signBinaryData(data, privateKey) {
+  const sign = crypto.createSign('SHA256');
+  sign.update(data);
+  return sign.sign(privateKey);
+}
+
+/**
+ * Verify ECDSA signature on binary data
+ */
+export function verifyBinarySignature(data, signature, publicKey) {
+  try {
+    const verify = crypto.createVerify('SHA256');
+    verify.update(data);
+    return verify.verify(publicKey, signature);
+  } catch (error) {
+    return false;
+  }
+}
+
+/**
+ * Encode ECDH init message (Phase 1: Server → Coordinator)
+ * Format: [ecdhPubKeyLen(1)][ecdhPubKey][ecdsaPubKeyLen(1)][ecdsaPubKey][timestamp(8)][sigLen(1)][signature]
+ */
+export function encodeECDHInit(ecdhPublicKey, ecdsaPublicKey, timestamp, signature) {
+  const ecdhPubKeyBuffer = ecdhPublicKey; // Already a Buffer
+  const ecdsaPubKeyBuffer = Buffer.from(ecdsaPublicKey, 'utf8');
+  const signatureBuffer = signature; // Already a Buffer
   
   // Create timestamp buffer (8 bytes, big endian)
   const timestampBuffer = Buffer.allocUnsafe(8);
   timestampBuffer.writeBigUInt64BE(BigInt(timestamp));
   
-  // Create length prefixes (2 bytes each)
-  const pubKeyLenBuffer = Buffer.allocUnsafe(2);
-  pubKeyLenBuffer.writeUInt16BE(pubKeyBuffer.length);
+  // Validate lengths fit in 1 byte (0-255)
+  if (ecdhPubKeyBuffer.length > 255) throw new Error('ECDH public key too long');
+  if (ecdsaPubKeyBuffer.length > 255) throw new Error('ECDSA public key too long');
+  if (signatureBuffer.length > 255) throw new Error('Signature too long');
   
-  const sigLenBuffer = Buffer.allocUnsafe(2);
-  sigLenBuffer.writeUInt16BE(signatureBuffer.length);
-  
-  // Concatenate all parts
+  // Concatenate all parts with 1-byte length prefixes
   return Buffer.concat([
-    pubKeyLenBuffer,
-    pubKeyBuffer,
+    Buffer.from([ecdhPubKeyBuffer.length]),
+    ecdhPubKeyBuffer,
+    Buffer.from([ecdsaPubKeyBuffer.length]),
+    ecdsaPubKeyBuffer,
     timestampBuffer,
-    challengeBuffer,
-    answerHashBuffer,
-    sigLenBuffer,
+    Buffer.from([signatureBuffer.length]),
     signatureBuffer
   ]);
 }
 
 /**
- * Decode binary registration message
- * Format: [pubKeyLen(2)][pubKey][timestamp(8)][challenge(16)][answerHash(32)][sigLen(2)][signature]
+ * Decode ECDH init message
+ * Format: [ecdhPubKeyLen(1)][ecdhPubKey][ecdsaPubKeyLen(1)][ecdsaPubKey][timestamp(8)][sigLen(1)][signature]
  */
-export function decodeBinaryRegistration(buffer) {
+export function decodeECDHInit(buffer) {
   let offset = 0;
   
-  // Read public key length and data
-  const pubKeyLen = buffer.readUInt16BE(offset);
-  offset += 2;
-  const serverPublicKey = buffer.slice(offset, offset + pubKeyLen).toString('utf8');
-  offset += pubKeyLen;
+  // Read ECDH public key
+  const ecdhPubKeyLen = buffer.readUInt8(offset);
+  offset += 1;
+  const ecdhPublicKey = buffer.slice(offset, offset + ecdhPubKeyLen);
+  offset += ecdhPubKeyLen;
+  
+  // Read ECDSA public key
+  const ecdsaPubKeyLen = buffer.readUInt8(offset);
+  offset += 1;
+  const ecdsaPublicKey = buffer.slice(offset, offset + ecdsaPubKeyLen).toString('utf8');
+  offset += ecdsaPubKeyLen;
   
   // Read timestamp
   const timestamp = Number(buffer.readBigUInt64BE(offset));
   offset += 8;
   
-  // Read challenge (16 bytes)
-  const challenge = buffer.slice(offset, offset + 16).toString('hex');
-  offset += 16;
-  
-  // Read answer hash (32 bytes)
-  const challengeAnswerHash = buffer.slice(offset, offset + 32).toString('hex');
-  offset += 32;
-  
-  // Read signature length and data
-  const sigLen = buffer.readUInt16BE(offset);
-  offset += 2;
-  const signature = buffer.slice(offset, offset + sigLen).toString('hex');
+  // Read signature
+  const sigLen = buffer.readUInt8(offset);
+  offset += 1;
+  const signature = buffer.slice(offset, offset + sigLen);
   offset += sigLen;
   
   return {
-    serverPublicKey,
+    ecdhPublicKey,
+    ecdsaPublicKey,
     timestamp,
-    challenge,
-    challengeAnswerHash,
+    signature
+  };
+}
+
+/**
+ * Encode ECDH response message (Phase 2: Coordinator → Server)
+ * Format: [ecdhPubKeyLen(1)][ecdhPubKey][timestamp(8)][sigLen(1)][signature]
+ */
+export function encodeECDHResponse(ecdhPublicKey, timestamp, signature) {
+  const ecdhPubKeyBuffer = ecdhPublicKey; // Already a Buffer
+  const signatureBuffer = signature; // Already a Buffer
+  
+  // Create timestamp buffer (8 bytes, big endian)
+  const timestampBuffer = Buffer.allocUnsafe(8);
+  timestampBuffer.writeBigUInt64BE(BigInt(timestamp));
+  
+  // Validate lengths fit in 1 byte
+  if (ecdhPubKeyBuffer.length > 255) throw new Error('ECDH public key too long');
+  if (signatureBuffer.length > 255) throw new Error('Signature too long');
+  
+  return Buffer.concat([
+    Buffer.from([ecdhPubKeyBuffer.length]),
+    ecdhPubKeyBuffer,
+    timestampBuffer,
+    Buffer.from([signatureBuffer.length]),
+    signatureBuffer
+  ]);
+}
+
+/**
+ * Decode ECDH response message
+ * Format: [ecdhPubKeyLen(1)][ecdhPubKey][timestamp(8)][sigLen(1)][signature]
+ */
+export function decodeECDHResponse(buffer) {
+  let offset = 0;
+  
+  // Read ECDH public key
+  const ecdhPubKeyLen = buffer.readUInt8(offset);
+  offset += 1;
+  const ecdhPublicKey = buffer.slice(offset, offset + ecdhPubKeyLen);
+  offset += ecdhPubKeyLen;
+  
+  // Read timestamp
+  const timestamp = Number(buffer.readBigUInt64BE(offset));
+  offset += 8;
+  
+  // Read signature
+  const sigLen = buffer.readUInt8(offset);
+  offset += 1;
+  const signature = buffer.slice(offset, offset + sigLen);
+  offset += sigLen;
+  
+  return {
+    ecdhPublicKey,
+    timestamp,
     signature
   };
 }

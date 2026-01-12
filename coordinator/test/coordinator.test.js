@@ -3,21 +3,38 @@ import assert from 'node:assert';
 import dgram from 'dgram';
 import { ServerRegistry } from '../registry.js';
 import { UDPServer } from '../udp.js';
-import { generateECDSAKeyPair, signData, verifySignature, createHMAC, generateChallenge, hashChallengeAnswer, deriveAESKey, encryptAES, decryptAES, encodeBinaryRegistration } from '../crypto.js';
+import { 
+  generateECDSAKeyPair, 
+  signData, 
+  verifySignature, 
+  createHMAC, 
+  generateChallenge, 
+  hashChallengeAnswer, 
+  deriveAESKey, 
+  encryptAES, 
+  decryptAES,
+  generateECDHKeyPair,
+  computeECDHSecret,
+  signBinaryData,
+  encodeECDHInit,
+  decodeECDHResponse
+} from '../crypto.js';
 
 /**
  * Binary protocol constants
  */
 const PROTOCOL_VERSION = 0x01;
 const MESSAGE_TYPES = {
-  REGISTER: 0x01,
-  PING: 0x02,
-  HEARTBEAT: 0x03,
-  ANSWER: 0x04
+  ECDH_INIT: 0x01,
+  ECDH_RESPONSE: 0x02,
+  REGISTER: 0x03,
+  PING: 0x04,
+  HEARTBEAT: 0x05,
+  ANSWER: 0x06
 };
 
 /**
- * Mock server for testing (uses binary protocol)
+ * Mock server for testing (uses ECDH-based binary protocol)
  */
 class MockServer {
   constructor() {
@@ -27,6 +44,7 @@ class MockServer {
     this.serverPrivateKey = this.keys.privateKey;
     this.coordinatorPort = 0;
     this.responses = [];
+    this.sharedSecret = null;
   }
 
   async start() {
@@ -42,35 +60,76 @@ class MockServer {
     });
   }
 
-  sendRegister(coordinatorPort, challenge, expectedAnswer) {
+  async sendRegister(coordinatorPort, challenge, expectedAnswer) {
+    // Phase 1: Send ECDH init
+    const ecdhKeys = generateECDHKeyPair();
+    this.ecdhKeys = ecdhKeys;
+    
     const timestamp = Date.now();
-    const payload = {
+    const signature = signBinaryData(ecdhKeys.publicKey, this.serverPrivateKey);
+    
+    const ecdhInitPayload = encodeECDHInit(
+      ecdhKeys.publicKey,
+      this.serverPublicKey,
+      timestamp,
+      signature
+    );
+    
+    await this.sendBinary(ecdhInitPayload, coordinatorPort, MESSAGE_TYPES.ECDH_INIT);
+    
+    // Wait for ECDH response
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
+    const ecdhResponse = this.getLastResponse();
+    if (!ecdhResponse || ecdhResponse.length < 2) {
+      throw new Error('No ECDH response received');
+    }
+    
+    // Parse ECDH response
+    const version = ecdhResponse[0];
+    const messageType = ecdhResponse[1];
+    const payload = ecdhResponse.slice(2);
+    
+    if (version !== PROTOCOL_VERSION || messageType !== MESSAGE_TYPES.ECDH_RESPONSE) {
+      throw new Error('Invalid ECDH response');
+    }
+    
+    const decoded = decodeECDHResponse(payload);
+    
+    // Compute shared secret
+    this.sharedSecret = computeECDHSecret(ecdhKeys.privateKey, decoded.ecdhPublicKey);
+    
+    // Clear responses
+    this.responses = [];
+    
+    // Phase 2: Send encrypted registration
+    const regTimestamp = Date.now();
+    const regPayload = {
       challenge,
       challengeAnswerHash: expectedAnswer
     };
-
-    // Sign the data for verification
-    const signature = signData({ 
-      serverPublicKey: this.serverPublicKey, 
-      timestamp, 
-      payload 
-    }, this.serverPrivateKey);
-
-    // Encode as binary registration message
-    const binaryPayload = encodeBinaryRegistration(
-      this.serverPublicKey,
-      timestamp,
-      challenge,
-      expectedAnswer,
-      signature
-    );
-
-    return this.sendBinary(binaryPayload, coordinatorPort, MESSAGE_TYPES.REGISTER);
+    
+    const regMessage = {
+      serverPublicKey: this.serverPublicKey,
+      timestamp: regTimestamp,
+      payload: regPayload,
+      signature: signData({ 
+        serverPublicKey: this.serverPublicKey, 
+        timestamp: regTimestamp, 
+        payload: regPayload 
+      }, this.serverPrivateKey)
+    };
+    
+    // Encrypt with shared secret
+    const key = deriveAESKey(this.sharedSecret.toString('hex'));
+    const encryptedPayload = encryptAES(regMessage, key);
+    
+    await this.sendBinary(encryptedPayload, coordinatorPort, MESSAGE_TYPES.REGISTER);
   }
 
   sendPing(coordinatorPort, expectedAnswer) {
     const message = { type: 'ping' };
-    return this.send(message, coordinatorPort, MESSAGE_TYPES.PING, true, expectedAnswer); // true = encrypted
+    return this.send(message, coordinatorPort, MESSAGE_TYPES.PING, true, expectedAnswer);
   }
 
   sendHeartbeat(coordinatorPort, expectedAnswer, newChallenge, newExpectedAnswer) {
@@ -85,7 +144,7 @@ class MockServer {
       hmac: createHMAC(payload, expectedAnswer)
     };
 
-    return this.send(message, coordinatorPort, MESSAGE_TYPES.HEARTBEAT, true, expectedAnswer); // true = encrypted
+    return this.send(message, coordinatorPort, MESSAGE_TYPES.HEARTBEAT, true, expectedAnswer);
   }
 
   sendAnswer(coordinatorPort, expectedAnswer, sessionId, sdp, candidates) {
@@ -105,7 +164,7 @@ class MockServer {
       }, this.serverPrivateKey)
     };
 
-    return this.send(message, coordinatorPort, MESSAGE_TYPES.ANSWER, true, expectedAnswer); // true = encrypted
+    return this.send(message, coordinatorPort, MESSAGE_TYPES.ANSWER, true, expectedAnswer);
   }
 
   send(message, coordinatorPort, messageType, encrypt = false, expectedAnswer = null) {
@@ -117,7 +176,7 @@ class MockServer {
         const key = deriveAESKey(expectedAnswer);
         payload = encryptAES(message, key);
       } else {
-        // Unencrypted JSON (should not be used anymore)
+        // Unencrypted JSON
         payload = Buffer.from(JSON.stringify(message), 'utf8');
       }
       
@@ -384,24 +443,49 @@ describe('Coordinator with Mock Server', () => {
     const testMockServer = new MockServer();
     await testMockServer.start();
 
+    // Phase 1: Send ECDH init (this will work)
+    const ecdhKeys = generateECDHKeyPair();
+    const timestamp = Date.now();
+    const signature = signBinaryData(ecdhKeys.publicKey, testMockServer.serverPrivateKey);
+    
+    const ecdhInitPayload = encodeECDHInit(
+      ecdhKeys.publicKey,
+      testMockServer.serverPublicKey,
+      timestamp,
+      signature
+    );
+    
+    await testMockServer.sendBinary(ecdhInitPayload, coordinatorPort, MESSAGE_TYPES.ECDH_INIT);
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
+    // Get ECDH response and compute shared secret
+    const ecdhResponse = testMockServer.getLastResponse();
+    const decoded = decodeECDHResponse(ecdhResponse.slice(2));
+    const sharedSecret = computeECDHSecret(ecdhKeys.privateKey, decoded.ecdhPublicKey);
+    
+    testMockServer.clearResponses();
+
     const challenge = generateChallenge();
     const expectedAnswer = hashChallengeAnswer(challenge, 'password123');
 
     // Create message with wrong signature
-    const payload = {
+    const regPayload = {
       challenge,
       challengeAnswerHash: expectedAnswer
     };
 
     const message = {
-      type: 'register',
       serverPublicKey: testMockServer.serverPublicKey,
       timestamp: Date.now(),
-      payload,
+      payload: regPayload,
       signature: 'invalid-signature'
     };
 
-    await testMockServer.send(message, coordinatorPort, MESSAGE_TYPES.REGISTER, false);
+    // Encrypt with shared secret
+    const key = deriveAESKey(sharedSecret.toString('hex'));
+    const encryptedPayload = encryptAES(message, key);
+
+    await testMockServer.sendBinary(encryptedPayload, coordinatorPort, MESSAGE_TYPES.REGISTER);
     await new Promise(resolve => setTimeout(resolve, 100));
 
     // Server should not be registered

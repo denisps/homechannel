@@ -132,17 +132,34 @@ function verifyHMAC(data, hmacValue, secret) {
 **Version**: `0x01`
 
 **Message Types**:
-- `0x01` - Registration (binary payload)
-- `0x02` - Ping (AES-CTR encrypted)
-- `0x03` - Heartbeat (AES-CTR encrypted)
-- `0x04` - Answer (AES-CTR encrypted)
+- `0x01` - ECDH Init (Phase 1 of registration)
+- `0x02` - ECDH Response (Phase 2 of registration)
+- `0x03` - Registration (Phase 3, AES-CTR encrypted)
+- `0x04` - Ping (AES-CTR encrypted)
+- `0x05` - Heartbeat (AES-CTR encrypted)
+- `0x06` - Answer (AES-CTR encrypted)
 
-**Registration** (binary payload):
+**ECDH Init** (binary payload with 1-byte lengths):
 ```
-Format: [pubKeyLen(2)][pubKey][timestamp(8)][challenge(16)][answerHash(32)][sigLen(2)][signature]
+Format: [ecdhPubKeyLen(1)][ecdhPubKey][ecdsaPubKeyLen(1)][ecdsaPubKey][timestamp(8)][sigLen(1)][signature]
 ```
 
-**All other messages** (AES-CTR encrypted JSON payloads):
+**ECDH Response** (binary payload):
+```
+Format: [ecdhPubKeyLen(1)][ecdhPubKey][timestamp(8)][sigLen(1)][signature]
+```
+
+**Registration** (AES-CTR encrypted JSON, key from ECDH shared secret):
+```javascript
+{ 
+  serverPublicKey, 
+  timestamp, 
+  payload: { challenge, challengeAnswerHash }, 
+  signature 
+}
+```
+
+**All other messages** (AES-CTR encrypted JSON, key from expectedAnswer):
 ```javascript
 { type: 'ping' }  // Keepalive
 

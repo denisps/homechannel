@@ -1,28 +1,33 @@
 import dgram from 'dgram';
-import { verifySignature, verifyHMAC, deriveAESKey, decryptAES, encryptAES, decodeBinaryRegistration, encodeBinaryRegistration } from './crypto.js';
+import { verifySignature, verifyHMAC, deriveAESKey, decryptAES, encryptAES, generateECDHKeyPair, computeECDHSecret, signBinaryData, verifyBinarySignature, decodeECDHInit, encodeECDHResponse } from './crypto.js';
 
 /**
  * Binary protocol constants
  */
 const PROTOCOL_VERSION = 0x01;
 const MESSAGE_TYPES = {
-  REGISTER: 0x01,
-  PING: 0x02,
-  HEARTBEAT: 0x03,
-  ANSWER: 0x04
+  ECDH_INIT: 0x01,      // Phase 1: Server sends ECDH public key
+  ECDH_RESPONSE: 0x02,  // Phase 2: Coordinator responds with ECDH public key
+  REGISTER: 0x03,       // Phase 3: Server sends encrypted registration
+  PING: 0x04,           // Keepalive
+  HEARTBEAT: 0x05,      // Challenge refresh
+  ANSWER: 0x06          // SDP answer
 };
 
 // Reverse mapping for logging
 const MESSAGE_TYPE_NAMES = {
-  0x01: 'register',
-  0x02: 'ping',
-  0x03: 'heartbeat',
-  0x04: 'answer'
+  0x01: 'ecdh_init',
+  0x02: 'ecdh_response',
+  0x03: 'register',
+  0x04: 'ping',
+  0x05: 'heartbeat',
+  0x06: 'answer'
 };
 
 /**
  * UDP server for server-coordinator communication
  * Uses binary protocol: [version (1 byte)][type (1 byte)][payload]
+ * ECDH-based two-phase registration
  */
 export class UDPServer {
   constructor(registry, coordinatorKeys, options = {}) {
@@ -31,6 +36,20 @@ export class UDPServer {
     this.port = options.port || 3478;
     this.socket = null;
     this.messageHandlers = new Map();
+    
+    // ECDH session state for pending registrations
+    // Map: ipPort → { ecdhKeys, serverECDSAPublicKey, serverECDHPublicKey, timestamp }
+    this.ecdhSessions = new Map();
+    
+    // Cleanup old ECDH sessions every 5 minutes
+    this.ecdhCleanupInterval = setInterval(() => {
+      const now = Date.now();
+      for (const [ipPort, session] of this.ecdhSessions.entries()) {
+        if (now - session.timestamp > 300000) { // 5 minutes
+          this.ecdhSessions.delete(ipPort);
+        }
+      }
+    }, 300000);
   }
 
   /**
@@ -62,7 +81,6 @@ export class UDPServer {
   /**
    * Handle incoming UDP message (binary protocol)
    * Format: [version (1 byte)][type (1 byte)][payload]
-   * Registration is unencrypted JSON, all others are AES-CTR encrypted
    */
   handleMessage(msg, rinfo) {
     try {
@@ -86,52 +104,22 @@ export class UDPServer {
 
       let message;
 
-      // Handle registration (binary format)
-      if (messageType === MESSAGE_TYPES.REGISTER) {
-        try {
-          const decoded = decodeBinaryRegistration(payload);
-          message = {
-            type: 'register',
-            serverPublicKey: decoded.serverPublicKey,
-            timestamp: decoded.timestamp,
-            payload: {
-              challenge: decoded.challenge,
-              challengeAnswerHash: decoded.challengeAnswerHash
-            },
-            signature: decoded.signature
-          };
-        } catch (error) {
-          console.error('Failed to parse binary registration message:', error.message);
-          return;
-        }
-      } else {
-        // All other messages are AES-CTR encrypted
-        const expectedAnswer = this.registry.getExpectedAnswer(ipPort);
-        if (!expectedAnswer) {
-          console.error('Cannot decrypt message: server not registered');
-          return;
-        }
-        
-        // Decrypt using expectedAnswer as key
-        const key = deriveAESKey(expectedAnswer);
-        message = decryptAES(payload, key);
-      }
-
       // Route message based on type
-      const typeName = MESSAGE_TYPE_NAMES[messageType] || message.type;
-      
       switch (messageType) {
+        case MESSAGE_TYPES.ECDH_INIT:
+          this.handleECDHInit(payload, ipPort, rinfo);
+          break;
         case MESSAGE_TYPES.REGISTER:
-          this.handleRegister(message, ipPort, rinfo);
+          this.handleRegister(payload, ipPort, rinfo);
           break;
         case MESSAGE_TYPES.PING:
           this.handlePing(ipPort, rinfo);
           break;
         case MESSAGE_TYPES.HEARTBEAT:
-          this.handleHeartbeat(message, ipPort, rinfo);
+          this.handleHeartbeat(payload, ipPort, rinfo);
           break;
         case MESSAGE_TYPES.ANSWER:
-          this.handleAnswer(message, ipPort, rinfo);
+          this.handleAnswer(payload, ipPort, rinfo);
           break;
         default:
           console.warn(`Unknown message type: 0x${messageType.toString(16)}`);
@@ -142,39 +130,122 @@ export class UDPServer {
   }
 
   /**
-   * Handle server registration
+   * Handle ECDH init (Phase 1)
    */
-  handleRegister(message, ipPort, rinfo) {
-    const { serverPublicKey, timestamp, payload, signature } = message;
-
-    if (!serverPublicKey || !payload || !signature) {
-      console.error('Invalid registration message');
-      return;
-    }
-
-    // Verify ECDSA signature
-    const dataToVerify = { serverPublicKey, timestamp, payload };
-    if (!verifySignature(dataToVerify, signature, serverPublicKey)) {
-      console.error('Invalid signature in registration');
-      return;
-    }
-
-    // Register server
-    const { challenge, challengeAnswerHash } = payload;
+  handleECDHInit(payload, ipPort, rinfo) {
     try {
-      this.registry.register(serverPublicKey, ipPort, challenge, challengeAnswerHash);
-      console.log(`Server registered: ${serverPublicKey.substring(0, 20)}... at ${ipPort}`);
-
-      // Send acknowledgment
-      this.sendResponse(rinfo, { status: 'ok', type: 'register' });
-
+      const decoded = decodeECDHInit(payload);
+      
+      // Verify ECDSA signature on ECDH public key
+      if (!verifyBinarySignature(decoded.ecdhPublicKey, decoded.signature, decoded.ecdsaPublicKey)) {
+        console.error('Invalid signature in ECDH init');
+        return;
+      }
+      
+      // Generate coordinator's ECDH key pair
+      const ecdhKeys = generateECDHKeyPair();
+      
+      // Store ECDH session
+      this.ecdhSessions.set(ipPort, {
+        ecdhKeys,
+        serverECDSAPublicKey: decoded.ecdsaPublicKey,
+        serverECDHPublicKey: decoded.ecdhPublicKey,
+        timestamp: Date.now()
+      });
+      
+      // Sign coordinator's ECDH public key with coordinator's ECDSA key
+      const timestamp = Date.now();
+      const signature = signBinaryData(ecdhKeys.publicKey, this.coordinatorKeys.privateKey);
+      
+      // Encode and send ECDH response
+      const responsePayload = encodeECDHResponse(ecdhKeys.publicKey, timestamp, signature);
+      const message = Buffer.concat([
+        Buffer.from([PROTOCOL_VERSION, MESSAGE_TYPES.ECDH_RESPONSE]),
+        responsePayload
+      ]);
+      
+      this.socket.send(message, rinfo.port, rinfo.address, (err) => {
+        if (err) {
+          console.error('Error sending ECDH response:', err);
+        }
+      });
+      
       // Emit event for testing
-      if (this.messageHandlers.has('register')) {
-        this.messageHandlers.get('register')(message, ipPort);
+      if (this.messageHandlers.has('ecdh_init')) {
+        this.messageHandlers.get('ecdh_init')(decoded, ipPort);
       }
     } catch (error) {
-      console.error('Error registering server:', error.message);
-      this.sendResponse(rinfo, { status: 'error', message: error.message });
+      console.error('Error handling ECDH init:', error.message);
+    }
+  }
+
+  /**
+   * Handle server registration (Phase 3)
+   */
+  handleRegister(payload, ipPort, rinfo) {
+    try {
+      // Get ECDH session
+      const session = this.ecdhSessions.get(ipPort);
+      if (!session) {
+        console.error('No ECDH session found for registration');
+        return;
+      }
+      
+      // Compute shared secret
+      const sharedSecret = computeECDHSecret(session.ecdhKeys.privateKey, session.serverECDHPublicKey);
+      
+      // Derive AES key from shared secret
+      const key = deriveAESKey(sharedSecret.toString('hex'));
+      
+      // Decrypt registration message
+      const message = decryptAES(payload, key);
+      
+      const { serverPublicKey, timestamp, payload: regPayload, signature } = message;
+
+      if (!serverPublicKey || !regPayload || !signature) {
+        console.error('Invalid registration message');
+        return;
+      }
+
+      // Verify ECDSA signature
+      const dataToVerify = { serverPublicKey, timestamp, payload: regPayload };
+      if (!verifySignature(dataToVerify, signature, serverPublicKey)) {
+        console.error('Invalid signature in registration');
+        return;
+      }
+
+      // Register server
+      const { challenge, challengeAnswerHash } = regPayload;
+      try {
+        this.registry.register(serverPublicKey, ipPort, challenge, challengeAnswerHash);
+        console.log(`Server registered: ${serverPublicKey.substring(0, 20)}... at ${ipPort}`);
+
+        // Send acknowledgment (encrypted with shared secret)
+        const ackMessage = { status: 'ok', type: 'register' };
+        const encryptedAck = encryptAES(ackMessage, key);
+        const response = Buffer.concat([
+          Buffer.from([PROTOCOL_VERSION, MESSAGE_TYPES.REGISTER]),
+          encryptedAck
+        ]);
+        
+        this.socket.send(response, rinfo.port, rinfo.address, (err) => {
+          if (err) {
+            console.error('Error sending registration ack:', err);
+          }
+        });
+
+        // Clean up ECDH session
+        this.ecdhSessions.delete(ipPort);
+
+        // Emit event for testing
+        if (this.messageHandlers.has('register')) {
+          this.messageHandlers.get('register')(message, ipPort);
+        }
+      } catch (error) {
+        console.error('Error registering server:', error.message);
+      }
+    } catch (error) {
+      console.error('Error handling registration:', error.message);
     }
   }
 
@@ -196,71 +267,82 @@ export class UDPServer {
   /**
    * Handle challenge refresh heartbeat
    */
-  handleHeartbeat(message, ipPort, rinfo) {
-    const { payload, hmac } = message;
+  handleHeartbeat(payload, ipPort, rinfo) {
+    try {
+      // Get expected answer (shared secret) for this server
+      const expectedAnswer = this.registry.getExpectedAnswer(ipPort);
+      if (!expectedAnswer) {
+        console.error('Server not found for heartbeat');
+        return;
+      }
 
-    if (!payload || !hmac) {
-      console.error('Invalid heartbeat message');
-      return;
-    }
+      // Decrypt using expectedAnswer as key
+      const key = deriveAESKey(expectedAnswer);
+      const message = decryptAES(payload, key);
 
-    // Get expected answer (shared secret) for this server
-    const expectedAnswer = this.registry.getExpectedAnswer(ipPort);
-    if (!expectedAnswer) {
-      console.error('Server not found for heartbeat');
-      return;
-    }
+      const { payload: hbPayload, hmac } = message;
 
-    // Verify HMAC using expectedAnswer as key
-    if (!verifyHMAC(payload, hmac, expectedAnswer)) {
-      console.error('Invalid HMAC in heartbeat');
-      return;
-    }
+      if (!hbPayload || !hmac) {
+        console.error('Invalid heartbeat message');
+        return;
+      }
 
-    // Update challenge
-    const { newChallenge, challengeAnswerHash } = payload;
-    this.registry.updateChallenge(ipPort, newChallenge, challengeAnswerHash);
-    
-    // Emit event for testing
-    if (this.messageHandlers.has('heartbeat')) {
-      this.messageHandlers.get('heartbeat')(message, ipPort);
+      // Verify HMAC using expectedAnswer as key
+      if (!verifyHMAC(hbPayload, hmac, expectedAnswer)) {
+        console.error('Invalid HMAC in heartbeat');
+        return;
+      }
+
+      // Update challenge
+      const { newChallenge, challengeAnswerHash } = hbPayload;
+      this.registry.updateChallenge(ipPort, newChallenge, challengeAnswerHash);
+      
+      // Emit event for testing
+      if (this.messageHandlers.has('heartbeat')) {
+        this.messageHandlers.get('heartbeat')(message, ipPort);
+      }
+    } catch (error) {
+      console.error('Error handling heartbeat:', error.message);
     }
   }
 
   /**
    * Handle SDP answer from server
    */
-  handleAnswer(message, ipPort, rinfo) {
-    const { serverPublicKey, sessionId, timestamp, payload, signature } = message;
-
-    if (!serverPublicKey || !sessionId || !payload || !signature) {
-      console.error('Invalid answer message');
-      return;
-    }
-
-    // Verify ECDSA signature
-    const dataToVerify = { serverPublicKey, sessionId, timestamp, payload };
-    if (!verifySignature(dataToVerify, signature, serverPublicKey)) {
-      console.error('Invalid signature in answer');
-      return;
-    }
-
-    // Emit event for testing/relay
-    if (this.messageHandlers.has('answer')) {
-      this.messageHandlers.get('answer')(message, sessionId);
-    }
-  }
-
-  /**
-   * Send response to client
-   */
-  sendResponse(rinfo, data) {
-    const message = Buffer.from(JSON.stringify(data));
-    this.socket.send(message, rinfo.port, rinfo.address, (err) => {
-      if (err) {
-        console.error('Error sending UDP response:', err);
+  handleAnswer(payload, ipPort, rinfo) {
+    try {
+      // Get expected answer (shared secret) for this server
+      const expectedAnswer = this.registry.getExpectedAnswer(ipPort);
+      if (!expectedAnswer) {
+        console.error('Server not found for answer');
+        return;
       }
-    });
+
+      // Decrypt using expectedAnswer as key
+      const key = deriveAESKey(expectedAnswer);
+      const message = decryptAES(payload, key);
+
+      const { serverPublicKey, sessionId, timestamp, payload: answerPayload, signature } = message;
+
+      if (!serverPublicKey || !sessionId || !answerPayload || !signature) {
+        console.error('Invalid answer message');
+        return;
+      }
+
+      // Verify ECDSA signature
+      const dataToVerify = { serverPublicKey, sessionId, timestamp, payload: answerPayload };
+      if (!verifySignature(dataToVerify, signature, serverPublicKey)) {
+        console.error('Invalid signature in answer');
+        return;
+      }
+
+      // Emit event for testing/relay
+      if (this.messageHandlers.has('answer')) {
+        this.messageHandlers.get('answer')(message, sessionId);
+      }
+    } catch (error) {
+      console.error('Error handling answer:', error.message);
+    }
   }
 
   /**
@@ -274,12 +356,12 @@ export class UDPServer {
     const expectedAnswer = this.registry.getExpectedAnswer(ipPort);
     
     let payload;
-    if (expectedAnswer && messageType !== MESSAGE_TYPES.REGISTER) {
+    if (expectedAnswer && messageType !== MESSAGE_TYPES.ECDH_INIT && messageType !== MESSAGE_TYPES.ECDH_RESPONSE) {
       // Encrypt message using expectedAnswer as key
       const key = deriveAESKey(expectedAnswer);
       payload = encryptAES(data, key);
     } else {
-      // Unencrypted JSON (for registration responses)
+      // Unencrypted (for ECDH messages)
       payload = Buffer.from(JSON.stringify(data), 'utf8');
     }
     
@@ -311,6 +393,11 @@ export class UDPServer {
    * Stop UDP server
    */
   stop() {
+    // Clear ECDH cleanup interval
+    if (this.ecdhCleanupInterval) {
+      clearInterval(this.ecdhCleanupInterval);
+    }
+    
     return new Promise((resolve) => {
       if (this.socket) {
         this.socket.close(() => {

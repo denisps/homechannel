@@ -4,12 +4,13 @@ The coordinator is a publicly accessible signaling server that facilitates WebRT
 
 ## Features
 
-- **UDP Communication**: Server-initiated communication with ECDH and HMAC
+- **UDP Communication**: ECDH-based two-phase registration with binary protocol
 - **Memory-Compact State**: Minimal server registry (publicKey → {ipPort, challenge, expectedAnswer, timestamp})
 - **Optimized Protocol**: Tiny keepalive pings (30s), HMAC-authenticated challenge refresh (10min)
-- **ECDSA Security**: Initial registration verification, ongoing HMAC authentication
+- **ECDSA Security**: ECDH key exchange signed with ECDSA keys, ongoing HMAC authentication
+- **AES-CTR Encryption**: All communication after ECDH handshake is encrypted
 - **Rate Limiting**: Connection attempt tracking and rate limiting
-- **Auto Cleanup**: Periodic cleanup of expired server records
+- **Auto Cleanup**: Periodic cleanup of expired server records and ECDH sessions
 
 ## Installation
 
@@ -85,23 +86,55 @@ npm run test:watch
 ```
 
 Version: `0x01`
-Types: `0x01`=register, `0x02`=ping, `0x03`=heartbeat, `0x04`=answer
+Types: `0x01`=ecdh_init, `0x02`=ecdh_response, `0x03`=register, `0x04`=ping, `0x05`=heartbeat, `0x06`=answer
 
-**Registration** (from server, binary payload):
+**Two-Phase ECDH Registration:**
+
+**Phase 1: ECDH Init** (from server, binary payload with 1-byte lengths):
 ```
-Format: [pubKeyLen(2)][pubKey][timestamp(8)][challenge(16)][answerHash(32)][sigLen(2)][signature]
+Format: [ecdhPubKeyLen(1)][ecdhPubKey][ecdsaPubKeyLen(1)][ecdsaPubKey][timestamp(8)][sigLen(1)][signature]
 
 Fields:
-- pubKeyLen: 2 bytes (big-endian) - length of public key
-- pubKey: variable length - ECDSA public key in PEM format
+- ecdhPubKeyLen: 1 byte - length of ECDH public key
+- ecdhPubKey: variable - ECDH public key (raw bytes)
+- ecdsaPubKeyLen: 1 byte - length of ECDSA public key
+- ecdsaPubKey: variable - server's ECDSA public key in PEM format
 - timestamp: 8 bytes (big-endian) - Unix timestamp in milliseconds
-- challenge: 16 bytes - random challenge
-- answerHash: 32 bytes - SHA-256 hash of expected answer
-- sigLen: 2 bytes (big-endian) - length of signature
-- signature: variable length - ECDSA signature
+- sigLen: 1 byte - length of signature
+- signature: variable - ECDSA signature over ECDH public key
 ```
 
-**All messages below have AES-CTR encrypted JSON payloads**
+**Phase 2: ECDH Response** (from coordinator, binary payload):
+```
+Format: [ecdhPubKeyLen(1)][ecdhPubKey][timestamp(8)][sigLen(1)][signature]
+
+Fields:
+- ecdhPubKeyLen: 1 byte - length of coordinator's ECDH public key
+- ecdhPubKey: variable - coordinator's ECDH public key (raw bytes)
+- timestamp: 8 bytes (big-endian) - Unix timestamp in milliseconds
+- sigLen: 1 byte - length of signature
+- signature: variable - coordinator's ECDSA signature over ECDH public key
+```
+
+Both parties compute ECDH shared secret.
+
+**Phase 3: Registration** (from server, AES-CTR encrypted JSON):
+Encrypted with key derived from ECDH shared secret.
+```javascript
+{
+  serverPublicKey: '...',
+  timestamp: 1234567890,
+  payload: {
+    challenge: '...',
+    challengeAnswerHash: '...'
+  },
+  signature: '...'
+}
+```
+
+After registration, expectedAnswer becomes the shared secret for all future communication.
+
+**All messages below have AES-CTR encrypted JSON payloads (key from expectedAnswer)**
 
 **Keepalive Ping** (from server, every ~30s):
 ```javascript

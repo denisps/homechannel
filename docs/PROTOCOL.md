@@ -17,14 +17,20 @@ All UDP messages follow this format:
 **Protocol Version**: `0x01`
 
 **Message Types**:
-- `0x01` - Registration
-- `0x02` - Ping (keepalive)
-- `0x03` - Heartbeat (challenge refresh)
-- `0x04` - Answer (SDP response)
+- `0x01` - ECDH Init (Phase 1 of registration)
+- `0x02` - ECDH Response (Phase 2 of registration)
+- `0x03` - Registration (Phase 3, encrypted)
+- `0x04` - Ping (keepalive)
+- `0x05` - Heartbeat (challenge refresh)
+- `0x06` - Answer (SDP response)
 
-### Registration Message (Binary Payload)
+### Two-Phase ECDH Registration
 
-Initial ECDH exchange with ECDSA-signed binary payload:
+Registration uses ECDH key exchange to establish a shared secret before sending sensitive data.
+
+#### Phase 1: ECDH Init (Server → Coordinator)
+
+Server sends its ECDH public key, signed with its ECDSA key:
 
 ```
 Binary: [0x01][0x01][Binary Payload]
@@ -32,19 +38,49 @@ Binary: [0x01][0x01][Binary Payload]
 
 Binary Payload Format:
 ```
-[pubKeyLen(2)][pubKey(variable)][timestamp(8)][challenge(16)][answerHash(32)][sigLen(2)][signature(variable)]
+[ecdhPubKeyLen(1)][ecdhPubKey][ecdsaPubKeyLen(1)][ecdsaPubKey][timestamp(8)][sigLen(1)][signature]
 ```
 
 Fields:
-- `pubKeyLen` (2 bytes, big-endian): Length of public key
-- `pubKey` (variable): ECDSA public key in PEM format (UTF-8 encoded)
+- `ecdhPubKeyLen` (1 byte): Length of ECDH public key (typically 65 bytes for uncompressed P-256)
+- `ecdhPubKey` (variable): ECDH public key (raw bytes)
+- `ecdsaPubKeyLen` (1 byte): Length of ECDSA public key in PEM format
+- `ecdsaPubKey` (variable): Server's ECDSA public key in PEM format (UTF-8 encoded)
 - `timestamp` (8 bytes, big-endian): Unix timestamp in milliseconds
-- `challenge` (16 bytes): Random challenge bytes
-- `answerHash` (32 bytes): SHA-256 hash of expected answer
-- `sigLen` (2 bytes, big-endian): Length of signature
-- `signature` (variable): ECDSA signature over `{serverPublicKey, timestamp, payload}`
+- `sigLen` (1 byte): Length of signature
+- `signature` (variable): ECDSA signature over the ECDH public key (binary)
 
-The signature is computed over the JSON representation of:
+#### Phase 2: ECDH Response (Coordinator → Server)
+
+Coordinator responds with its ECDH public key, signed with its ECDSA key:
+
+```
+Binary: [0x01][0x02][Binary Payload]
+```
+
+Binary Payload Format:
+```
+[ecdhPubKeyLen(1)][ecdhPubKey][timestamp(8)][sigLen(1)][signature]
+```
+
+Fields:
+- `ecdhPubKeyLen` (1 byte): Length of coordinator's ECDH public key
+- `ecdhPubKey` (variable): Coordinator's ECDH public key (raw bytes)
+- `timestamp` (8 bytes, big-endian): Unix timestamp in milliseconds
+- `sigLen` (1 byte): Length of signature
+- `signature` (variable): Coordinator's ECDSA signature over the ECDH public key (binary)
+
+Both parties now compute the shared secret using ECDH.
+
+#### Phase 3: Registration (Server → Coordinator)
+
+Server sends encrypted registration data using AES-CTR with key derived from ECDH shared secret:
+
+```
+Binary: [0x01][0x03][AES-CTR Encrypted Payload]
+```
+
+Encrypted JSON payload:
 ```javascript
 {
   serverPublicKey: 'pem-key',
@@ -52,16 +88,21 @@ The signature is computed over the JSON representation of:
   payload: {
     challenge: 'hex-string',
     challengeAnswerHash: 'hex-string'
-  }
+  },
+  signature: 'ecdsa-hex-signature'
 }
 ```
+
+The signature is computed over the JSON representation of `{serverPublicKey, timestamp, payload}`.
+
+After registration, the `challengeAnswerHash` (expectedAnswer) becomes the shared secret for all future communication.
 
 ### Keepalive Ping (AES-CTR Encrypted Payload)
 
 Sent every ~30 seconds:
 
 ```
-Binary: [0x01][0x02][Encrypted payload]
+Binary: [0x01][0x04][Encrypted payload]
 ```
 
 Encrypted JSON:
@@ -71,12 +112,14 @@ Encrypted JSON:
 }
 ```
 
+Encryption key: Derived from expectedAnswer (using SHA-256).
+
 ### Challenge Refresh (AES-CTR Encrypted Payload)
 
 Sent every ~10 minutes with HMAC:
 
 ```
-Binary: [0x01][0x03][Encrypted payload]
+Binary: [0x01][0x05][Encrypted payload]
 ```
 
 Encrypted JSON:
@@ -96,7 +139,7 @@ Encrypted JSON:
 Response to client offer:
 
 ```
-Binary: [0x01][0x04][Encrypted payload]
+Binary: [0x01][0x06][Encrypted payload]
 ```
 
 Encrypted JSON:
