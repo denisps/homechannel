@@ -56,17 +56,32 @@ The project consists of three independent components:
 
 ### Security Model
 
-#### ECDSA Signing
-- SDPs (Session Description Protocol) must be signed using ECDSA
-- ICE candidates must be signed using ECDSA
+#### ECDSA Signing and Public Key Infrastructure
+- **Coordinator** has its own ECDSA key pair (public key accepted and saved by both clients and servers)
+- **Servers** identified by their ECDSA public keys
+- **Server initiates** communication with coordinator using ECDH (Elliptic Curve Diffie-Hellman)
 - Use P-256 (secp256r1) curve for compatibility
-- Implement signature verification on both sides
+- All payloads are ECDSA-signed:
+  - Coordinator verifies server payloads using server's public key
+  - Server verifies coordinator responses using coordinator's public key
+  - Client verifies both coordinator and server signatures
 
-#### Public Key Infrastructure
-- Servers identified by their ECDSA public keys
-- No traditional PKI/certificates required
-- Implement trust-on-first-use (TOFU) or pre-shared public keys
-- Store known server public keys securely
+#### Challenge-Response Authentication
+- **Server generates challenge** for each connection attempt (included in payload to coordinator)
+- **Client must answer challenge correctly** to proceed (verifies client knows password)
+- **Purpose**: Prevents brute-force attacks and DDoS on the server
+- **Challenge refresh**: Coordinator and server periodically exchange short UDP messages to:
+  - Keep UDP ports open (NAT hole-punching)
+  - Refresh challenges from time to time
+- Challenge is short to minimize bandwidth
+
+#### WebRTC Signaling Flow
+1. Server registers with coordinator, includes challenge for clients
+2. Client connects to coordinator, provides challenge answer
+3. If challenge answer is correct, coordinator delivers client's payload (SDP + all ICE candidates) to server
+4. Server replies with its own signed payload (SDP + all ICE candidates)
+5. Coordinator delivers server payload to client
+6. **Direct datachannel** established between client and server (peer-to-peer)
 
 ## Coding Standards
 
@@ -167,38 +182,79 @@ The project consists of three independent components:
 
 ### UDP Message Format
 ```javascript
-// Example UDP message structure
+// Server -> Coordinator registration message
 {
-  type: 'message_type',
+  type: 'register',
+  serverPublicKey: 'hex-encoded-ecdsa-public-key',
   timestamp: Date.now(),
-  payload: {},
-  signature: 'hex_encoded_signature'
+  payload: {
+    challenge: 'short-random-challenge-for-client',
+    challengeAnswer: 'expected-answer-hash'
+  },
+  signature: 'hex-encoded-ecdsa-signature'
+}
+
+// Periodic keepalive (every ~30s)
+{
+  type: 'heartbeat',
+  serverPublicKey: 'hex-encoded-ecdsa-public-key',
+  timestamp: Date.now(),
+  payload: {
+    newChallenge: 'refreshed-challenge' // optional
+  },
+  signature: 'hex-encoded-ecdsa-signature'
+}
+
+// Server -> Coordinator: SDP answer + all ICE candidates
+{
+  type: 'answer',
+  serverPublicKey: 'hex-encoded-ecdsa-public-key',
+  timestamp: Date.now(),
+  payload: {
+    sessionId: 'client-session-id',
+    sdp: { type: 'answer', sdp: '...' },
+    candidates: [/* all ICE candidates */]
+  },
+  signature: 'hex-encoded-ecdsa-signature'
 }
 ```
 
 ### HTTPS Polling Pattern
 ```javascript
-// Long-polling example for client
-async function pollForMessages() {
+// Client connects to server through coordinator
+async function connectToServer(serverPublicKey, challengeAnswer, sdp, candidates) {
   try {
-    const response = await fetch('/api/poll', {
+    const response = await fetch('/api/connect', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ lastMessageId: lastId })
+      body: JSON.stringify({
+        serverPublicKey: serverPublicKey,
+        challengeAnswer: challengeAnswer,
+        payload: {
+          sdp: sdp, // WebRTC offer
+          candidates: candidates // All gathered ICE candidates
+        },
+        signature: 'client-signature-if-needed'
+      })
     });
     const data = await response.json();
-    // Process data
+    
+    // Verify coordinator and server signatures
+    if (verifyCoordinatorSignature(data) && verifyServerSignature(data.serverPayload)) {
+      // Use server's SDP answer and ICE candidates
+      return data.serverPayload;
+    }
   } catch (error) {
-    console.error('Polling error:', error);
+    console.error('Connection error:', error);
   }
 }
 ```
 
-### ECDSA Signing Pattern
+### ECDSA Signing and ECDH Pattern
 ```javascript
-// Example signing pattern
 const crypto = require('crypto');
 
+// ECDSA signing (for payloads)
 function signData(data, privateKey) {
   const sign = crypto.createSign('SHA256');
   sign.update(JSON.stringify(data));
@@ -209,6 +265,25 @@ function verifySignature(data, signature, publicKey) {
   const verify = crypto.createVerify('SHA256');
   verify.update(JSON.stringify(data));
   return verify.verify(publicKey, signature, 'hex');
+}
+
+// ECDH for initial server-coordinator communication
+function performECDH(privateKey, coordinatorPublicKey) {
+  const ecdh = crypto.createECDH('prime256v1'); // P-256 curve
+  ecdh.setPrivateKey(privateKey);
+  const sharedSecret = ecdh.computeSecret(coordinatorPublicKey);
+  return sharedSecret;
+}
+
+// Challenge-response pattern
+function generateChallenge() {
+  return crypto.randomBytes(16).toString('hex'); // Short challenge
+}
+
+function hashChallengeAnswer(challenge, password) {
+  const hash = crypto.createHash('sha256');
+  hash.update(challenge + password);
+  return hash.digest('hex');
 }
 ```
 
