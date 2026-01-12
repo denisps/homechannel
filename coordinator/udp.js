@@ -136,20 +136,20 @@ export class UDPServer {
     try {
       const decoded = decodeECDHInit(payload);
       
-      // Verify ECDSA signature on ECDH public key
-      if (!verifyBinarySignature(decoded.ecdhPublicKey, decoded.signature, decoded.ecdsaPublicKey)) {
-        console.error('Invalid signature in ECDH init');
-        return;
-      }
+      // No signature verification here - server identity not revealed yet
+      // Just extract ECDH public key
       
       // Generate coordinator's ECDH key pair
       const ecdhKeys = generateECDHKeyPair();
       
-      // Store ECDH session
+      // Compute shared secret immediately
+      const sharedSecret = computeECDHSecret(ecdhKeys.privateKey, decoded.ecdhPublicKey);
+      
+      // Store ECDH session with shared secret
       this.ecdhSessions.set(ipPort, {
         ecdhKeys,
-        serverECDSAPublicKey: decoded.ecdsaPublicKey,
         serverECDHPublicKey: decoded.ecdhPublicKey,
+        sharedSecret,
         timestamp: Date.now()
       });
       
@@ -157,8 +157,13 @@ export class UDPServer {
       const timestamp = Date.now();
       const signature = signBinaryData(ecdhKeys.publicKey, this.coordinatorKeys.privateKey);
       
+      // Encrypt signature data with shared secret
+      const key = deriveAESKey(sharedSecret.toString('hex'));
+      const signatureData = { timestamp, signature: signature.toString('hex') };
+      const encryptedData = encryptAES(signatureData, key);
+      
       // Encode and send ECDH response
-      const responsePayload = encodeECDHResponse(ecdhKeys.publicKey, timestamp, signature);
+      const responsePayload = encodeECDHResponse(ecdhKeys.publicKey, encryptedData);
       const message = Buffer.concat([
         Buffer.from([PROTOCOL_VERSION, MESSAGE_TYPES.ECDH_RESPONSE]),
         responsePayload
@@ -191,8 +196,8 @@ export class UDPServer {
         return;
       }
       
-      // Compute shared secret
-      const sharedSecret = computeECDHSecret(session.ecdhKeys.privateKey, session.serverECDHPublicKey);
+      // Use stored shared secret
+      const sharedSecret = session.sharedSecret;
       
       // Derive AES key from shared secret
       const key = deriveAESKey(sharedSecret.toString('hex'));

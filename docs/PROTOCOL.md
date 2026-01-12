@@ -24,13 +24,13 @@ All UDP messages follow this format:
 - `0x05` - Heartbeat (challenge refresh)
 - `0x06` - Answer (SDP response)
 
-### Two-Phase ECDH Registration
+### Three-Phase ECDH Registration
 
-Registration uses ECDH key exchange to establish a shared secret before sending sensitive data.
+Registration uses ECDH key exchange to establish a shared secret before sending any sensitive data. No ECDSA public keys or signatures are transmitted unencrypted.
 
 #### Phase 1: ECDH Init (Server → Coordinator)
 
-Server sends its ECDH public key, signed with its ECDSA key:
+Server sends ONLY its ECDH public key (no signatures or identities):
 
 ```
 Binary: [0x01][0x01][Binary Payload]
@@ -38,21 +38,18 @@ Binary: [0x01][0x01][Binary Payload]
 
 Binary Payload Format:
 ```
-[ecdhPubKeyLen(1)][ecdhPubKey][ecdsaPubKeyLen(1)][ecdsaPubKey][timestamp(8)][sigLen(1)][signature]
+[ecdhPubKeyLen(1)][ecdhPubKey]
 ```
 
 Fields:
 - `ecdhPubKeyLen` (1 byte): Length of ECDH public key (typically 65 bytes for uncompressed P-256)
 - `ecdhPubKey` (variable): ECDH public key (raw bytes)
-- `ecdsaPubKeyLen` (1 byte): Length of ECDSA public key in PEM format
-- `ecdsaPubKey` (variable): Server's ECDSA public key in PEM format (UTF-8 encoded)
-- `timestamp` (8 bytes, big-endian): Unix timestamp in milliseconds
-- `sigLen` (1 byte): Length of signature
-- `signature` (variable): ECDSA signature over the ECDH public key (binary)
+
+**Security**: No server identity revealed. Observer cannot determine which server is connecting.
 
 #### Phase 2: ECDH Response (Coordinator → Server)
 
-Coordinator responds with its ECDH public key, signed with its ECDSA key:
+Coordinator responds with its ECDH public key and encrypted signature:
 
 ```
 Binary: [0x01][0x02][Binary Payload]
@@ -60,17 +57,17 @@ Binary: [0x01][0x02][Binary Payload]
 
 Binary Payload Format:
 ```
-[ecdhPubKeyLen(1)][ecdhPubKey][timestamp(8)][sigLen(1)][signature]
+[ecdhPubKeyLen(1)][ecdhPubKey][encryptedData]
 ```
 
 Fields:
 - `ecdhPubKeyLen` (1 byte): Length of coordinator's ECDH public key
 - `ecdhPubKey` (variable): Coordinator's ECDH public key (raw bytes)
-- `timestamp` (8 bytes, big-endian): Unix timestamp in milliseconds
-- `sigLen` (1 byte): Length of signature
-- `signature` (variable): Coordinator's ECDSA signature over the ECDH public key (binary)
+- `encryptedData` (variable): AES-CTR encrypted `{timestamp, signature}`
 
-Both parties now compute the shared secret using ECDH.
+Both parties compute ECDH shared secret. Coordinator signs its ECDH public key with its ECDSA private key, then encrypts the signature data using AES-CTR with key derived from the shared secret. Server decrypts and verifies coordinator's identity using trusted coordinator public key.
+
+**Security**: Coordinator proves its identity, but signature is encrypted. Observer cannot impersonate coordinator or see signature.
 
 #### Phase 3: Registration (Server → Coordinator)
 
@@ -94,6 +91,8 @@ Encrypted JSON payload:
 ```
 
 The signature is computed over the JSON representation of `{serverPublicKey, timestamp, payload}`.
+
+**Security**: Server identity (ECDSA public key) and challenge data only revealed after encryption established. Observer cannot see challenge or identify server.
 
 After registration, the `challengeAnswerHash` (expectedAnswer) becomes the shared secret for all future communication.
 

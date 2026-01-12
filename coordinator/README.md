@@ -88,48 +88,49 @@ npm run test:watch
 Version: `0x01`
 Types: `0x01`=ecdh_init, `0x02`=ecdh_response, `0x03`=register, `0x04`=ping, `0x05`=heartbeat, `0x06`=answer
 
-**Two-Phase ECDH Registration:**
+**Three-Phase ECDH Registration:**
 
-**Phase 1: ECDH Init** (from server, binary payload with 1-byte lengths):
+**Phase 1: ECDH Init** (from server, binary payload):
 ```
-Format: [ecdhPubKeyLen(1)][ecdhPubKey][ecdsaPubKeyLen(1)][ecdsaPubKey][timestamp(8)][sigLen(1)][signature]
+Format: [ecdhPubKeyLen(1)][ecdhPubKey]
 
 Fields:
 - ecdhPubKeyLen: 1 byte - length of ECDH public key
 - ecdhPubKey: variable - ECDH public key (raw bytes)
-- ecdsaPubKeyLen: 1 byte - length of ECDSA public key
-- ecdsaPubKey: variable - server's ECDSA public key in PEM format
-- timestamp: 8 bytes (big-endian) - Unix timestamp in milliseconds
-- sigLen: 1 byte - length of signature
-- signature: variable - ECDSA signature over ECDH public key
+
+Security: No server identity or signature transmitted. Observer cannot identify which server is connecting.
 ```
 
-**Phase 2: ECDH Response** (from coordinator, binary payload):
+**Phase 2: ECDH Response** (from coordinator, binary payload with encrypted signature):
 ```
-Format: [ecdhPubKeyLen(1)][ecdhPubKey][timestamp(8)][sigLen(1)][signature]
+Format: [ecdhPubKeyLen(1)][ecdhPubKey][encryptedData]
 
 Fields:
 - ecdhPubKeyLen: 1 byte - length of coordinator's ECDH public key
 - ecdhPubKey: variable - coordinator's ECDH public key (raw bytes)
-- timestamp: 8 bytes (big-endian) - Unix timestamp in milliseconds
-- sigLen: 1 byte - length of signature
-- signature: variable - coordinator's ECDSA signature over ECDH public key
+- encryptedData: variable - AES-CTR encrypted {timestamp, signature}
+
+Both parties compute ECDH shared secret. Coordinator's ECDSA signature on its ECDH public key is encrypted with shared secret. Server verifies coordinator identity using trusted coordinator public key.
+
+Security: Coordinator proves identity, but signature is encrypted. Observer cannot impersonate coordinator.
 ```
 
-Both parties compute ECDH shared secret.
-
 **Phase 3: Registration** (from server, AES-CTR encrypted JSON):
-Encrypted with key derived from ECDH shared secret.
-```javascript
+```
+Encrypted with key derived from ECDH shared secret
+
+JSON payload:
 {
-  serverPublicKey: '...',
+  serverPublicKey: 'pem-key',
   timestamp: 1234567890,
   payload: {
-    challenge: '...',
-    challengeAnswerHash: '...'
+    challenge: 'hex-string',
+    challengeAnswerHash: 'hex-string'
   },
-  signature: '...'
+  signature: 'ecdsa-hex-signature'
 }
+
+Security: Server identity (ECDSA public key) and challenge data only revealed after encryption established. Observer cannot see challenge or identify server.
 ```
 
 After registration, expectedAnswer becomes the shared secret for all future communication.

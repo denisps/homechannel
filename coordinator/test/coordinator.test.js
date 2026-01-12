@@ -61,19 +61,11 @@ class MockServer {
   }
 
   async sendRegister(coordinatorPort, challenge, expectedAnswer) {
-    // Phase 1: Send ECDH init
+    // Phase 1: Send ECDH init (only ECDH public key, no signature)
     const ecdhKeys = generateECDHKeyPair();
     this.ecdhKeys = ecdhKeys;
     
-    const timestamp = Date.now();
-    const signature = signBinaryData(ecdhKeys.publicKey, this.serverPrivateKey);
-    
-    const ecdhInitPayload = encodeECDHInit(
-      ecdhKeys.publicKey,
-      this.serverPublicKey,
-      timestamp,
-      signature
-    );
+    const ecdhInitPayload = encodeECDHInit(ecdhKeys.publicKey);
     
     await this.sendBinary(ecdhInitPayload, coordinatorPort, MESSAGE_TYPES.ECDH_INIT);
     
@@ -99,10 +91,20 @@ class MockServer {
     // Compute shared secret
     this.sharedSecret = computeECDHSecret(ecdhKeys.privateKey, decoded.ecdhPublicKey);
     
+    // Decrypt signature data to verify coordinator identity
+    const key = deriveAESKey(this.sharedSecret.toString('hex'));
+    const signatureData = decryptAES(decoded.encryptedData, key);
+    
+    // Here we would verify coordinator's signature if we had coordinator's public key
+    // For now, just check that decryption worked and we got valid data
+    if (!signatureData.timestamp || !signatureData.signature) {
+      throw new Error('Invalid signature data in ECDH response');
+    }
+    
     // Clear responses
     this.responses = [];
     
-    // Phase 2: Send encrypted registration
+    // Phase 3: Send encrypted registration
     const regTimestamp = Date.now();
     const regPayload = {
       challenge,
@@ -121,7 +123,6 @@ class MockServer {
     };
     
     // Encrypt with shared secret
-    const key = deriveAESKey(this.sharedSecret.toString('hex'));
     const encryptedPayload = encryptAES(regMessage, key);
     
     await this.sendBinary(encryptedPayload, coordinatorPort, MESSAGE_TYPES.REGISTER);

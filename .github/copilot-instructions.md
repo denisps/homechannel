@@ -139,20 +139,22 @@ function verifyHMAC(data, hmacValue, secret) {
 - `0x05` - Heartbeat (AES-CTR encrypted)
 - `0x06` - Answer (AES-CTR encrypted)
 
-**ECDH Init** (binary payload with 1-byte lengths):
+**ECDH Init** (binary payload, NO signatures or identities):
 ```
-Format: [ecdhPubKeyLen(1)][ecdhPubKey][ecdsaPubKeyLen(1)][ecdsaPubKey][timestamp(8)][sigLen(1)][signature]
+Format: [ecdhPubKeyLen(1)][ecdhPubKey]
 ```
+Server sends only ECDH public key. No server identity revealed.
 
-**ECDH Response** (binary payload):
+**ECDH Response** (binary payload with encrypted signature):
 ```
-Format: [ecdhPubKeyLen(1)][ecdhPubKey][timestamp(8)][sigLen(1)][signature]
+Format: [ecdhPubKeyLen(1)][ecdhPubKey][encryptedData]
 ```
+Coordinator sends ECDH public key plus AES-CTR encrypted `{timestamp, signature}` using shared secret.
 
 **Registration** (AES-CTR encrypted JSON, key from ECDH shared secret):
 ```javascript
 { 
-  serverPublicKey, 
+  serverPublicKey,    // Server identity revealed only after encryption
   timestamp, 
   payload: { challenge, challengeAnswerHash }, 
   signature 

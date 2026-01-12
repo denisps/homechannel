@@ -189,37 +189,25 @@ export function verifyBinarySignature(data, signature, publicKey) {
 
 /**
  * Encode ECDH init message (Phase 1: Server → Coordinator)
- * Format: [ecdhPubKeyLen(1)][ecdhPubKey][ecdsaPubKeyLen(1)][ecdsaPubKey][timestamp(8)][sigLen(1)][signature]
+ * Format: [ecdhPubKeyLen(1)][ecdhPubKey]
+ * No ECDSA public key or signature - server identity revealed only after encryption
  */
-export function encodeECDHInit(ecdhPublicKey, ecdsaPublicKey, timestamp, signature) {
+export function encodeECDHInit(ecdhPublicKey) {
   const ecdhPubKeyBuffer = ecdhPublicKey; // Already a Buffer
-  const ecdsaPubKeyBuffer = Buffer.from(ecdsaPublicKey, 'utf8');
-  const signatureBuffer = signature; // Already a Buffer
   
-  // Create timestamp buffer (8 bytes, big endian)
-  const timestampBuffer = Buffer.allocUnsafe(8);
-  timestampBuffer.writeBigUInt64BE(BigInt(timestamp));
-  
-  // Validate lengths fit in 1 byte (0-255)
+  // Validate length fits in 1 byte (0-255)
   if (ecdhPubKeyBuffer.length > 255) throw new Error('ECDH public key too long');
-  if (ecdsaPubKeyBuffer.length > 255) throw new Error('ECDSA public key too long');
-  if (signatureBuffer.length > 255) throw new Error('Signature too long');
   
-  // Concatenate all parts with 1-byte length prefixes
+  // Concatenate: length prefix + ECDH public key
   return Buffer.concat([
     Buffer.from([ecdhPubKeyBuffer.length]),
-    ecdhPubKeyBuffer,
-    Buffer.from([ecdsaPubKeyBuffer.length]),
-    ecdsaPubKeyBuffer,
-    timestampBuffer,
-    Buffer.from([signatureBuffer.length]),
-    signatureBuffer
+    ecdhPubKeyBuffer
   ]);
 }
 
 /**
  * Decode ECDH init message
- * Format: [ecdhPubKeyLen(1)][ecdhPubKey][ecdsaPubKeyLen(1)][ecdsaPubKey][timestamp(8)][sigLen(1)][signature]
+ * Format: [ecdhPubKeyLen(1)][ecdhPubKey]
  */
 export function decodeECDHInit(buffer) {
   let offset = 0;
@@ -228,60 +216,33 @@ export function decodeECDHInit(buffer) {
   const ecdhPubKeyLen = buffer.readUInt8(offset);
   offset += 1;
   const ecdhPublicKey = buffer.slice(offset, offset + ecdhPubKeyLen);
-  offset += ecdhPubKeyLen;
-  
-  // Read ECDSA public key
-  const ecdsaPubKeyLen = buffer.readUInt8(offset);
-  offset += 1;
-  const ecdsaPublicKey = buffer.slice(offset, offset + ecdsaPubKeyLen).toString('utf8');
-  offset += ecdsaPubKeyLen;
-  
-  // Read timestamp
-  const timestamp = Number(buffer.readBigUInt64BE(offset));
-  offset += 8;
-  
-  // Read signature
-  const sigLen = buffer.readUInt8(offset);
-  offset += 1;
-  const signature = buffer.slice(offset, offset + sigLen);
-  offset += sigLen;
   
   return {
-    ecdhPublicKey,
-    ecdsaPublicKey,
-    timestamp,
-    signature
+    ecdhPublicKey
   };
 }
 
 /**
  * Encode ECDH response message (Phase 2: Coordinator → Server)
- * Format: [ecdhPubKeyLen(1)][ecdhPubKey][timestamp(8)][sigLen(1)][signature]
+ * Format: [ecdhPubKeyLen(1)][ecdhPubKey][encryptedData]
+ * encryptedData contains AES-CTR encrypted {timestamp, signature}
  */
-export function encodeECDHResponse(ecdhPublicKey, timestamp, signature) {
+export function encodeECDHResponse(ecdhPublicKey, encryptedData) {
   const ecdhPubKeyBuffer = ecdhPublicKey; // Already a Buffer
-  const signatureBuffer = signature; // Already a Buffer
   
-  // Create timestamp buffer (8 bytes, big endian)
-  const timestampBuffer = Buffer.allocUnsafe(8);
-  timestampBuffer.writeBigUInt64BE(BigInt(timestamp));
-  
-  // Validate lengths fit in 1 byte
+  // Validate length fits in 1 byte
   if (ecdhPubKeyBuffer.length > 255) throw new Error('ECDH public key too long');
-  if (signatureBuffer.length > 255) throw new Error('Signature too long');
   
   return Buffer.concat([
     Buffer.from([ecdhPubKeyBuffer.length]),
     ecdhPubKeyBuffer,
-    timestampBuffer,
-    Buffer.from([signatureBuffer.length]),
-    signatureBuffer
+    encryptedData
   ]);
 }
 
 /**
  * Decode ECDH response message
- * Format: [ecdhPubKeyLen(1)][ecdhPubKey][timestamp(8)][sigLen(1)][signature]
+ * Format: [ecdhPubKeyLen(1)][ecdhPubKey][encryptedData]
  */
 export function decodeECDHResponse(buffer) {
   let offset = 0;
@@ -292,19 +253,11 @@ export function decodeECDHResponse(buffer) {
   const ecdhPublicKey = buffer.slice(offset, offset + ecdhPubKeyLen);
   offset += ecdhPubKeyLen;
   
-  // Read timestamp
-  const timestamp = Number(buffer.readBigUInt64BE(offset));
-  offset += 8;
-  
-  // Read signature
-  const sigLen = buffer.readUInt8(offset);
-  offset += 1;
-  const signature = buffer.slice(offset, offset + sigLen);
-  offset += sigLen;
+  // Rest is encrypted data
+  const encryptedData = buffer.slice(offset);
   
   return {
     ecdhPublicKey,
-    timestamp,
-    signature
+    encryptedData
   };
 }
