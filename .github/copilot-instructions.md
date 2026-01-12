@@ -132,20 +132,14 @@ function verifyHMAC(data, hmacValue, secret) {
 **Version**: `0x01`
 
 **Message Types**:
-- `0x01` - Registration (unencrypted JSON payload)
+- `0x01` - Registration (binary payload)
 - `0x02` - Ping (AES-CTR encrypted)
 - `0x03` - Heartbeat (AES-CTR encrypted)
 - `0x04` - Answer (AES-CTR encrypted)
 
-**Registration** (unencrypted JSON payload):
-```javascript
-{
-  type: 'register',
-  serverPublicKey: 'hex-ecdsa-public-key',
-  timestamp: Date.now(),
-  payload: { challenge, challengeAnswerHash },
-  signature: 'hex-ecdsa-signature'
-}
+**Registration** (binary payload):
+```
+Format: [pubKeyLen(2)][pubKey][timestamp(8)][challenge(16)][answerHash(32)][sigLen(2)][signature]
 ```
 
 **All other messages** (AES-CTR encrypted JSON payloads):

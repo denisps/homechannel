@@ -22,26 +22,37 @@ All UDP messages follow this format:
 - `0x03` - Heartbeat (challenge refresh)
 - `0x04` - Answer (SDP response)
 
-### Registration Message (Unencrypted Payload)
+### Registration Message (Binary Payload)
 
-Initial ECDH exchange with ECDSA-signed JSON payload:
+Initial ECDH exchange with ECDSA-signed binary payload:
 
 ```
-Binary: [0x01][0x01][JSON payload]
+Binary: [0x01][0x01][Binary Payload]
 ```
 
-JSON payload:
+Binary Payload Format:
+```
+[pubKeyLen(2)][pubKey(variable)][timestamp(8)][challenge(16)][answerHash(32)][sigLen(2)][signature(variable)]
+```
+
+Fields:
+- `pubKeyLen` (2 bytes, big-endian): Length of public key
+- `pubKey` (variable): ECDSA public key in PEM format (UTF-8 encoded)
+- `timestamp` (8 bytes, big-endian): Unix timestamp in milliseconds
+- `challenge` (16 bytes): Random challenge bytes
+- `answerHash` (32 bytes): SHA-256 hash of expected answer
+- `sigLen` (2 bytes, big-endian): Length of signature
+- `signature` (variable): ECDSA signature over `{serverPublicKey, timestamp, payload}`
+
+The signature is computed over the JSON representation of:
 ```javascript
 {
-  type: 'register',
-  serverPublicKey: 'hex-encoded-ecdsa-public-key',
-  timestamp: Date.now(),
+  serverPublicKey: 'pem-key',
+  timestamp: 1234567890,
   payload: {
-    serverName: 'my-home-server',
-    challenge: 'short-random-bytes-hex',
-    challengeAnswerHash: 'sha256-hash-of-answer'
-  },
-  signature: 'hex-encoded-ecdsa-signature'
+    challenge: 'hex-string',
+    challengeAnswerHash: 'hex-string'
+  }
 }
 ```
 

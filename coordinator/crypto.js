@@ -151,3 +151,77 @@ export function decryptAES(encryptedBuffer, key) {
     throw new Error('Decryption failed: ' + error.message);
   }
 }
+
+/**
+ * Encode binary registration message
+ * Format: [pubKeyLen(2)][pubKey][timestamp(8)][challenge(16)][answerHash(32)][sigLen(2)][signature]
+ */
+export function encodeBinaryRegistration(serverPublicKey, timestamp, challenge, challengeAnswerHash, signature) {
+  // Convert hex strings to buffers
+  const pubKeyBuffer = Buffer.from(serverPublicKey, 'utf8');
+  const challengeBuffer = Buffer.from(challenge, 'hex');
+  const answerHashBuffer = Buffer.from(challengeAnswerHash, 'hex');
+  const signatureBuffer = Buffer.from(signature, 'hex');
+  
+  // Create timestamp buffer (8 bytes, big endian)
+  const timestampBuffer = Buffer.allocUnsafe(8);
+  timestampBuffer.writeBigUInt64BE(BigInt(timestamp));
+  
+  // Create length prefixes (2 bytes each)
+  const pubKeyLenBuffer = Buffer.allocUnsafe(2);
+  pubKeyLenBuffer.writeUInt16BE(pubKeyBuffer.length);
+  
+  const sigLenBuffer = Buffer.allocUnsafe(2);
+  sigLenBuffer.writeUInt16BE(signatureBuffer.length);
+  
+  // Concatenate all parts
+  return Buffer.concat([
+    pubKeyLenBuffer,
+    pubKeyBuffer,
+    timestampBuffer,
+    challengeBuffer,
+    answerHashBuffer,
+    sigLenBuffer,
+    signatureBuffer
+  ]);
+}
+
+/**
+ * Decode binary registration message
+ * Format: [pubKeyLen(2)][pubKey][timestamp(8)][challenge(16)][answerHash(32)][sigLen(2)][signature]
+ */
+export function decodeBinaryRegistration(buffer) {
+  let offset = 0;
+  
+  // Read public key length and data
+  const pubKeyLen = buffer.readUInt16BE(offset);
+  offset += 2;
+  const serverPublicKey = buffer.slice(offset, offset + pubKeyLen).toString('utf8');
+  offset += pubKeyLen;
+  
+  // Read timestamp
+  const timestamp = Number(buffer.readBigUInt64BE(offset));
+  offset += 8;
+  
+  // Read challenge (16 bytes)
+  const challenge = buffer.slice(offset, offset + 16).toString('hex');
+  offset += 16;
+  
+  // Read answer hash (32 bytes)
+  const challengeAnswerHash = buffer.slice(offset, offset + 32).toString('hex');
+  offset += 32;
+  
+  // Read signature length and data
+  const sigLen = buffer.readUInt16BE(offset);
+  offset += 2;
+  const signature = buffer.slice(offset, offset + sigLen).toString('hex');
+  offset += sigLen;
+  
+  return {
+    serverPublicKey,
+    timestamp,
+    challenge,
+    challengeAnswerHash,
+    signature
+  };
+}

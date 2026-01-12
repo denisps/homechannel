@@ -3,7 +3,7 @@ import assert from 'node:assert';
 import dgram from 'dgram';
 import { ServerRegistry } from '../registry.js';
 import { UDPServer } from '../udp.js';
-import { generateECDSAKeyPair, signData, verifySignature, createHMAC, generateChallenge, hashChallengeAnswer, deriveAESKey, encryptAES, decryptAES } from '../crypto.js';
+import { generateECDSAKeyPair, signData, verifySignature, createHMAC, generateChallenge, hashChallengeAnswer, deriveAESKey, encryptAES, decryptAES, encodeBinaryRegistration } from '../crypto.js';
 
 /**
  * Binary protocol constants
@@ -43,21 +43,29 @@ class MockServer {
   }
 
   sendRegister(coordinatorPort, challenge, expectedAnswer) {
+    const timestamp = Date.now();
     const payload = {
       challenge,
       challengeAnswerHash: expectedAnswer
     };
 
-    // Registration is unencrypted JSON (initial ECDH)
-    const message = {
-      type: 'register',
-      serverPublicKey: this.serverPublicKey,
-      timestamp: Date.now(),
-      payload,
-      signature: signData({ serverPublicKey: this.serverPublicKey, timestamp: Date.now(), payload }, this.serverPrivateKey)
-    };
+    // Sign the data for verification
+    const signature = signData({ 
+      serverPublicKey: this.serverPublicKey, 
+      timestamp, 
+      payload 
+    }, this.serverPrivateKey);
 
-    return this.send(message, coordinatorPort, MESSAGE_TYPES.REGISTER, false); // false = unencrypted
+    // Encode as binary registration message
+    const binaryPayload = encodeBinaryRegistration(
+      this.serverPublicKey,
+      timestamp,
+      challenge,
+      expectedAnswer,
+      signature
+    );
+
+    return this.sendBinary(binaryPayload, coordinatorPort, MESSAGE_TYPES.REGISTER);
   }
 
   sendPing(coordinatorPort, expectedAnswer) {
@@ -109,10 +117,25 @@ class MockServer {
         const key = deriveAESKey(expectedAnswer);
         payload = encryptAES(message, key);
       } else {
-        // Unencrypted JSON (registration only)
+        // Unencrypted JSON (should not be used anymore)
         payload = Buffer.from(JSON.stringify(message), 'utf8');
       }
       
+      // Build binary message: [version][type][payload]
+      const binaryMessage = Buffer.concat([
+        Buffer.from([PROTOCOL_VERSION, messageType]),
+        payload
+      ]);
+      
+      this.socket.send(binaryMessage, coordinatorPort, 'localhost', (err) => {
+        if (err) reject(err);
+        else resolve();
+      });
+    });
+  }
+
+  sendBinary(payload, coordinatorPort, messageType) {
+    return new Promise((resolve, reject) => {
       // Build binary message: [version][type][payload]
       const binaryMessage = Buffer.concat([
         Buffer.from([PROTOCOL_VERSION, messageType]),

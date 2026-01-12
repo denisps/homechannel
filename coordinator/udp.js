@@ -1,5 +1,5 @@
 import dgram from 'dgram';
-import { verifySignature, verifyHMAC, deriveAESKey, decryptAES, encryptAES } from './crypto.js';
+import { verifySignature, verifyHMAC, deriveAESKey, decryptAES, encryptAES, decodeBinaryRegistration, encodeBinaryRegistration } from './crypto.js';
 
 /**
  * Binary protocol constants
@@ -86,13 +86,22 @@ export class UDPServer {
 
       let message;
 
-      // Handle registration (unencrypted JSON)
+      // Handle registration (binary format)
       if (messageType === MESSAGE_TYPES.REGISTER) {
         try {
-          message = JSON.parse(payload.toString('utf8'));
-          message.type = 'register';
+          const decoded = decodeBinaryRegistration(payload);
+          message = {
+            type: 'register',
+            serverPublicKey: decoded.serverPublicKey,
+            timestamp: decoded.timestamp,
+            payload: {
+              challenge: decoded.challenge,
+              challengeAnswerHash: decoded.challengeAnswerHash
+            },
+            signature: decoded.signature
+          };
         } catch (error) {
-          console.error('Failed to parse registration message:', error.message);
+          console.error('Failed to parse binary registration message:', error.message);
           return;
         }
       } else {

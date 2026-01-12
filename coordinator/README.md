@@ -87,18 +87,18 @@ npm run test:watch
 Version: `0x01`
 Types: `0x01`=register, `0x02`=ping, `0x03`=heartbeat, `0x04`=answer
 
-**Registration** (from server, unencrypted JSON payload):
-```javascript
-{
-  type: 'register',
-  serverPublicKey: '...',
-  timestamp: Date.now(),
-  payload: {
-    challenge: '...',
-    challengeAnswerHash: '...'
-  },
-  signature: 'ecdsa-signature'
-}
+**Registration** (from server, binary payload):
+```
+Format: [pubKeyLen(2)][pubKey][timestamp(8)][challenge(16)][answerHash(32)][sigLen(2)][signature]
+
+Fields:
+- pubKeyLen: 2 bytes (big-endian) - length of public key
+- pubKey: variable length - ECDSA public key in PEM format
+- timestamp: 8 bytes (big-endian) - Unix timestamp in milliseconds
+- challenge: 16 bytes - random challenge
+- answerHash: 32 bytes - SHA-256 hash of expected answer
+- sigLen: 2 bytes (big-endian) - length of signature
+- signature: variable length - ECDSA signature
 ```
 
 **All messages below have AES-CTR encrypted JSON payloads**
