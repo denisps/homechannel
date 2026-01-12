@@ -4,12 +4,33 @@ This document describes the communication protocols used by HomeChannel.
 
 ## UDP Protocol (Server ↔ Coordinator)
 
-Server initiates UDP connection to coordinator. All messages except registration are AES-CTR encrypted.
+Server initiates UDP connection to coordinator. All messages use binary protocol for minimal fingerprinting and overhead.
 
-### Registration Message (Unencrypted)
+### Binary Protocol Format
 
-Initial ECDH exchange, ECDSA-signed:
+All UDP messages follow this format:
 
+```
+[Version (1 byte)][Type (1 byte)][Payload (variable length)]
+```
+
+**Protocol Version**: `0x01`
+
+**Message Types**:
+- `0x01` - Registration
+- `0x02` - Ping (keepalive)
+- `0x03` - Heartbeat (challenge refresh)
+- `0x04` - Answer (SDP response)
+
+### Registration Message (Unencrypted Payload)
+
+Initial ECDH exchange with ECDSA-signed JSON payload:
+
+```
+Binary: [0x01][0x01][JSON payload]
+```
+
+JSON payload:
 ```javascript
 {
   type: 'register',
@@ -24,20 +45,30 @@ Initial ECDH exchange, ECDSA-signed:
 }
 ```
 
-### Keepalive Ping (AES-CTR Encrypted)
+### Keepalive Ping (AES-CTR Encrypted Payload)
 
-Sent every ~30 seconds, identified by IP:port only:
+Sent every ~30 seconds:
 
+```
+Binary: [0x01][0x02][Encrypted payload]
+```
+
+Encrypted JSON:
 ```javascript
 {
   type: 'ping'
 }
 ```
 
-### Challenge Refresh (AES-CTR Encrypted)
+### Challenge Refresh (AES-CTR Encrypted Payload)
 
 Sent every ~10 minutes with HMAC:
 
+```
+Binary: [0x01][0x03][Encrypted payload]
+```
+
+Encrypted JSON:
 ```javascript
 {
   type: 'heartbeat',
@@ -49,10 +80,15 @@ Sent every ~10 minutes with HMAC:
 }
 ```
 
-### SDP Answer (AES-CTR Encrypted)
+### SDP Answer (AES-CTR Encrypted Payload)
 
 Response to client offer:
 
+```
+Binary: [0x01][0x04][Encrypted payload]
+```
+
+Encrypted JSON:
 ```javascript
 {
   type: 'answer',
@@ -207,11 +243,27 @@ Response (waiting):
 
 ## Encryption
 
-All UDP messages after registration use AES-256-CTR:
+### Binary Protocol
+
+All UDP messages use binary protocol format to avoid fingerprinting:
+
+```
+[Version (1 byte)][Type (1 byte)][Payload (variable length)]
+```
+
+- **Version**: 0x01
+- **Types**: 0x01=register, 0x02=ping, 0x03=heartbeat, 0x04=answer
+
+### AES-CTR Encryption
+
+All UDP messages after registration use AES-256-CTR encryption:
 
 - **Key**: Derived from expectedAnswer using SHA-256
 - **IV**: Random 16 bytes, prepended to ciphertext
-- **Format**: `[IV (16 bytes)][Ciphertext]` as hex string
+- **Format**: `[IV (16 bytes)][Ciphertext]`
+- **Payload**: JSON message (encrypted in binary format)
+
+Registration message payload remains unencrypted JSON (initial ECDH exchange).
 
 ## Signatures
 

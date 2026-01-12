@@ -6,7 +6,18 @@ import { UDPServer } from '../udp.js';
 import { generateECDSAKeyPair, signData, verifySignature, createHMAC, generateChallenge, hashChallengeAnswer, deriveAESKey, encryptAES, decryptAES } from '../crypto.js';
 
 /**
- * Mock server for testing
+ * Binary protocol constants
+ */
+const PROTOCOL_VERSION = 0x01;
+const MESSAGE_TYPES = {
+  REGISTER: 0x01,
+  PING: 0x02,
+  HEARTBEAT: 0x03,
+  ANSWER: 0x04
+};
+
+/**
+ * Mock server for testing (uses binary protocol)
  */
 class MockServer {
   constructor() {
@@ -21,13 +32,8 @@ class MockServer {
   async start() {
     return new Promise((resolve) => {
       this.socket.on('message', (msg) => {
-        // Try to parse as JSON, if fails, it's encrypted
-        try {
-          this.responses.push(JSON.parse(msg.toString()));
-        } catch (e) {
-          // Store encrypted response for later decryption
-          this.responses.push({ encrypted: msg.toString() });
-        }
+        // Store binary response for later parsing
+        this.responses.push(msg);
       });
 
       this.socket.bind(() => {
@@ -42,7 +48,7 @@ class MockServer {
       challengeAnswerHash: expectedAnswer
     };
 
-    // Registration is unencrypted (initial ECDH)
+    // Registration is unencrypted JSON (initial ECDH)
     const message = {
       type: 'register',
       serverPublicKey: this.serverPublicKey,
@@ -51,12 +57,12 @@ class MockServer {
       signature: signData({ serverPublicKey: this.serverPublicKey, timestamp: Date.now(), payload }, this.serverPrivateKey)
     };
 
-    return this.send(message, coordinatorPort, false); // false = unencrypted
+    return this.send(message, coordinatorPort, MESSAGE_TYPES.REGISTER, false); // false = unencrypted
   }
 
   sendPing(coordinatorPort, expectedAnswer) {
     const message = { type: 'ping' };
-    return this.send(message, coordinatorPort, true, expectedAnswer); // true = encrypted
+    return this.send(message, coordinatorPort, MESSAGE_TYPES.PING, true, expectedAnswer); // true = encrypted
   }
 
   sendHeartbeat(coordinatorPort, expectedAnswer, newChallenge, newExpectedAnswer) {
@@ -71,7 +77,7 @@ class MockServer {
       hmac: createHMAC(payload, expectedAnswer)
     };
 
-    return this.send(message, coordinatorPort, true, expectedAnswer); // true = encrypted
+    return this.send(message, coordinatorPort, MESSAGE_TYPES.HEARTBEAT, true, expectedAnswer); // true = encrypted
   }
 
   sendAnswer(coordinatorPort, expectedAnswer, sessionId, sdp, candidates) {
@@ -91,24 +97,29 @@ class MockServer {
       }, this.serverPrivateKey)
     };
 
-    return this.send(message, coordinatorPort, true, expectedAnswer); // true = encrypted
+    return this.send(message, coordinatorPort, MESSAGE_TYPES.ANSWER, true, expectedAnswer); // true = encrypted
   }
 
-  send(message, coordinatorPort, encrypt = false, expectedAnswer = null) {
+  send(message, coordinatorPort, messageType, encrypt = false, expectedAnswer = null) {
     return new Promise((resolve, reject) => {
-      let buffer;
+      let payload;
       
       if (encrypt && expectedAnswer) {
         // Encrypt message using expectedAnswer as key
         const key = deriveAESKey(expectedAnswer);
-        const encryptedHex = encryptAES(message, key);
-        buffer = Buffer.from(encryptedHex);
+        payload = encryptAES(message, key);
       } else {
-        // Unencrypted (registration only)
-        buffer = Buffer.from(JSON.stringify(message));
+        // Unencrypted JSON (registration only)
+        payload = Buffer.from(JSON.stringify(message), 'utf8');
       }
       
-      this.socket.send(buffer, coordinatorPort, 'localhost', (err) => {
+      // Build binary message: [version][type][payload]
+      const binaryMessage = Buffer.concat([
+        Buffer.from([PROTOCOL_VERSION, messageType]),
+        payload
+      ]);
+      
+      this.socket.send(binaryMessage, coordinatorPort, 'localhost', (err) => {
         if (err) reject(err);
         else resolve();
       });
@@ -367,7 +378,7 @@ describe('Coordinator with Mock Server', () => {
       signature: 'invalid-signature'
     };
 
-    await testMockServer.send(message, coordinatorPort);
+    await testMockServer.send(message, coordinatorPort, MESSAGE_TYPES.REGISTER, false);
     await new Promise(resolve => setTimeout(resolve, 100));
 
     // Server should not be registered
@@ -399,7 +410,7 @@ describe('Coordinator with Mock Server', () => {
       hmac: 'invalid-hmac'
     };
 
-    await mockServer.send(message, coordinatorPort);
+    await mockServer.send(message, coordinatorPort, MESSAGE_TYPES.HEARTBEAT, true, expectedAnswer1);
     await new Promise(resolve => setTimeout(resolve, 100));
 
     // Challenge should not be updated

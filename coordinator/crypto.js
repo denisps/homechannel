@@ -113,7 +113,7 @@ export function deriveAESKey(expectedAnswer) {
 }
 
 /**
- * Encrypt data with AES-CTR
+ * Encrypt data with AES-CTR (returns Buffer)
  */
 export function encryptAES(data, key) {
   // Generate random IV (16 bytes for AES)
@@ -122,25 +122,22 @@ export function encryptAES(data, key) {
   // Create cipher
   const cipher = crypto.createCipheriv('aes-256-ctr', key, iv);
   
-  // Encrypt data
+  // Encrypt data (JSON serialized)
   const dataBuffer = Buffer.from(JSON.stringify(data), 'utf8');
   const encrypted = Buffer.concat([cipher.update(dataBuffer), cipher.final()]);
   
-  // Return IV + encrypted data as hex
-  return Buffer.concat([iv, encrypted]).toString('hex');
+  // Return IV + encrypted data as Buffer
+  return Buffer.concat([iv, encrypted]);
 }
 
 /**
- * Decrypt data with AES-CTR
+ * Decrypt data with AES-CTR (accepts Buffer)
  */
-export function decryptAES(encryptedHex, key) {
+export function decryptAES(encryptedBuffer, key) {
   try {
-    // Convert from hex
-    const buffer = Buffer.from(encryptedHex, 'hex');
-    
     // Extract IV (first 16 bytes)
-    const iv = buffer.slice(0, 16);
-    const encrypted = buffer.slice(16);
+    const iv = encryptedBuffer.slice(0, 16);
+    const encrypted = encryptedBuffer.slice(16);
     
     // Create decipher
     const decipher = crypto.createDecipheriv('aes-256-ctr', key, iv);

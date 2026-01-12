@@ -124,7 +124,20 @@ function verifyHMAC(data, hmacValue, secret) {
 
 ## UDP Message Format
 
-**Registration (unencrypted)**:
+**Binary protocol format** (avoid fingerprinting, minimize overhead):
+```
+[Version (1 byte)][Type (1 byte)][Payload]
+```
+
+**Version**: `0x01`
+
+**Message Types**:
+- `0x01` - Registration (unencrypted JSON payload)
+- `0x02` - Ping (AES-CTR encrypted)
+- `0x03` - Heartbeat (AES-CTR encrypted)
+- `0x04` - Answer (AES-CTR encrypted)
+
+**Registration** (unencrypted JSON payload):
 ```javascript
 {
   type: 'register',
@@ -135,7 +148,7 @@ function verifyHMAC(data, hmacValue, secret) {
 }
 ```
 
-**All other messages (AES-CTR encrypted)**:
+**All other messages** (AES-CTR encrypted JSON payloads):
 ```javascript
 { type: 'ping' }  // Keepalive
 

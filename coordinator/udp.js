@@ -2,7 +2,27 @@ import dgram from 'dgram';
 import { verifySignature, verifyHMAC, deriveAESKey, decryptAES, encryptAES } from './crypto.js';
 
 /**
+ * Binary protocol constants
+ */
+const PROTOCOL_VERSION = 0x01;
+const MESSAGE_TYPES = {
+  REGISTER: 0x01,
+  PING: 0x02,
+  HEARTBEAT: 0x03,
+  ANSWER: 0x04
+};
+
+// Reverse mapping for logging
+const MESSAGE_TYPE_NAMES = {
+  0x01: 'register',
+  0x02: 'ping',
+  0x03: 'heartbeat',
+  0x04: 'answer'
+};
+
+/**
  * UDP server for server-coordinator communication
+ * Uses binary protocol: [version (1 byte)][type (1 byte)][payload]
  */
 export class UDPServer {
   constructor(registry, coordinatorKeys, options = {}) {
@@ -40,25 +60,43 @@ export class UDPServer {
   }
 
   /**
-   * Handle incoming UDP message
-   * Registration (initial ECDH) is unencrypted, all other messages are AES-CTR encrypted
+   * Handle incoming UDP message (binary protocol)
+   * Format: [version (1 byte)][type (1 byte)][payload]
+   * Registration is unencrypted JSON, all others are AES-CTR encrypted
    */
   handleMessage(msg, rinfo) {
     try {
       const ipPort = `${rinfo.address}:${rinfo.port}`;
-      let message;
       
-      // Try to parse as JSON first (for unencrypted registration/initial ECDH)
-      try {
-        message = JSON.parse(msg.toString());
-        
-        // Only 'register' type should be unencrypted
-        if (message.type !== 'register') {
-          console.warn(`Received unencrypted non-registration message: ${message.type}`);
+      // Minimum message size: version + type
+      if (msg.length < 2) {
+        console.error('Message too short');
+        return;
+      }
+
+      const version = msg[0];
+      const messageType = msg[1];
+      const payload = msg.slice(2);
+
+      // Check protocol version
+      if (version !== PROTOCOL_VERSION) {
+        console.error(`Unsupported protocol version: ${version}`);
+        return;
+      }
+
+      let message;
+
+      // Handle registration (unencrypted JSON)
+      if (messageType === MESSAGE_TYPES.REGISTER) {
+        try {
+          message = JSON.parse(payload.toString('utf8'));
+          message.type = 'register';
+        } catch (error) {
+          console.error('Failed to parse registration message:', error.message);
           return;
         }
-      } catch (jsonError) {
-        // If JSON parse fails, this is an encrypted message (ping, heartbeat, answer)
+      } else {
+        // All other messages are AES-CTR encrypted
         const expectedAnswer = this.registry.getExpectedAnswer(ipPort);
         if (!expectedAnswer) {
           console.error('Cannot decrypt message: server not registered');
@@ -67,24 +105,27 @@ export class UDPServer {
         
         // Decrypt using expectedAnswer as key
         const key = deriveAESKey(expectedAnswer);
-        message = decryptAES(msg.toString(), key);
+        message = decryptAES(payload, key);
       }
 
-      switch (message.type) {
-        case 'register':
+      // Route message based on type
+      const typeName = MESSAGE_TYPE_NAMES[messageType] || message.type;
+      
+      switch (messageType) {
+        case MESSAGE_TYPES.REGISTER:
           this.handleRegister(message, ipPort, rinfo);
           break;
-        case 'ping':
+        case MESSAGE_TYPES.PING:
           this.handlePing(ipPort, rinfo);
           break;
-        case 'heartbeat':
+        case MESSAGE_TYPES.HEARTBEAT:
           this.handleHeartbeat(message, ipPort, rinfo);
           break;
-        case 'answer':
+        case MESSAGE_TYPES.ANSWER:
           this.handleAnswer(message, ipPort, rinfo);
           break;
         default:
-          console.warn(`Unknown message type: ${message.type}`);
+          console.warn(`Unknown message type: 0x${messageType.toString(16)}`);
       }
     } catch (error) {
       console.error('Error handling UDP message:', error.message);
@@ -214,24 +255,30 @@ export class UDPServer {
   }
 
   /**
-   * Send message to server (encrypted if expectedAnswer is available)
+   * Send message to server using binary protocol
+   * Format: [version (1 byte)][type (1 byte)][payload]
    */
-  sendToServer(ipPort, data) {
+  sendToServer(ipPort, data, messageType) {
     const [address, port] = ipPort.split(':');
     
     // Get expectedAnswer for encryption
     const expectedAnswer = this.registry.getExpectedAnswer(ipPort);
     
-    let message;
-    if (expectedAnswer) {
+    let payload;
+    if (expectedAnswer && messageType !== MESSAGE_TYPES.REGISTER) {
       // Encrypt message using expectedAnswer as key
       const key = deriveAESKey(expectedAnswer);
-      const encryptedHex = encryptAES(data, key);
-      message = Buffer.from(encryptedHex);
+      payload = encryptAES(data, key);
     } else {
-      // Unencrypted (for initial responses before registration)
-      message = Buffer.from(JSON.stringify(data));
+      // Unencrypted JSON (for registration responses)
+      payload = Buffer.from(JSON.stringify(data), 'utf8');
     }
+    
+    // Build binary message: [version][type][payload]
+    const message = Buffer.concat([
+      Buffer.from([PROTOCOL_VERSION, messageType]),
+      payload
+    ]);
     
     return new Promise((resolve, reject) => {
       this.socket.send(message, parseInt(port), address, (err) => {

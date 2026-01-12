@@ -79,7 +79,15 @@ npm run test:watch
 
 ### UDP Messages
 
-**Registration** (from server, UNENCRYPTED - initial ECDH):
+**Binary Protocol Format:**
+```
+[Version (1 byte)][Type (1 byte)][Payload (variable)]
+```
+
+Version: `0x01`
+Types: `0x01`=register, `0x02`=ping, `0x03`=heartbeat, `0x04`=answer
+
+**Registration** (from server, unencrypted JSON payload):
 ```javascript
 {
   type: 'register',
@@ -93,7 +101,7 @@ npm run test:watch
 }
 ```
 
-**All messages below are AES-CTR ENCRYPTED using expectedAnswer as key**
+**All messages below have AES-CTR encrypted JSON payloads**
 
 **Keepalive Ping** (from server, every ~30s):
 ```javascript
@@ -151,7 +159,8 @@ Map<serverPublicKey, {
 
 ## Security
 
-- **Initial Registration**: ECDSA signature verification (unencrypted ECDH exchange)
+- **Binary Protocol**: Version + type bytes avoid fingerprinting
+- **Initial Registration**: ECDSA signature verification (unencrypted JSON payload)
 - **Ongoing Communication**: AES-CTR encryption using expectedAnswer as key
   - 256-bit AES key derived from expectedAnswer
   - Random IV for each message
