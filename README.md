@@ -133,10 +133,12 @@ The coordinator is a publicly accessible Node.js service that facilitates signal
 **Key Files:**
 - `/coordinator/index.js` - Main coordinator entry point
 - `/coordinator/https.js` - HTTPS server for clients
-- `/coordinator/udp.js` - UDP server for home servers (ECDH + ECDSA)
-- `/coordinator/crypto.js` - ECDSA verification and ECDH operations
-- `/coordinator/registry.js` - Server registration and challenge management
+- `/coordinator/udp.js` - UDP server (ECDH initial, HMAC ongoing)
+- `/coordinator/crypto.js` - ECDSA verification, ECDH operations, HMAC authentication
+- `/coordinator/registry.js` - Memory-compact server registry (publicKey → {ipPort, challenge, expectedAnswer, timestamp})
 - `/coordinator/relay.js` - Payload relay between clients and servers
+- `/coordinator/cleanup.js` - Periodic cleanup of expired server records
+- `/coordinator/ratelimit.js` - Connection attempt rate limiting
 
 ## 🔐 Security Model
 
@@ -160,13 +162,14 @@ Each component has its own ECDSA key pair:
    - Stores known server public keys
    - Verifies signatures from both coordinator and server
 
-### Server-Coordinator Communication (ECDH + ECDSA)
+### Server-Coordinator Communication (ECDH + Shared Secret)
 
 **Initial Connection:**
 - Server initiates UDP connection to coordinator
 - Uses ECDH (Elliptic Curve Diffie-Hellman) for initial secure exchange
 - Server verifies coordinator's ECDSA signature
 - Coordinator verifies server's payload using server's public key
+- **expectedAnswer becomes shared secret** for ongoing communication
 
 **Registration Message:**
 ```
@@ -179,12 +182,18 @@ Server → Coordinator:
 }
 ```
 
+**Ongoing Communication:**
+- Uses **expectedAnswer as shared secret key** (no ECDSA signatures needed)
+- Server identified by IP:port combination
+- Avoids round-trips and excessive state
+- HMAC authentication using expectedAnswer
+
 **Periodic Heartbeat:**
 - Tiny UDP messages every ~30 seconds (keepalive)
 - Identified by IP:port combination only
 - No signature or timestamp for keepalive (minimal bandwidth)
 - Keeps UDP ports open for NAT traversal
-- Challenge refresh every ~10 minutes with full signed message
+- Challenge refresh every ~10 minutes using HMAC (expectedAnswer as key)
 
 ### Challenge-Response Authentication
 
@@ -195,6 +204,7 @@ Prevents brute-force and DDoS attacks on home servers:
 3. **Coordinator verifies answer** before relaying client payload to server
 4. **Challenge is short** to minimize bandwidth
 5. **Challenge refreshes periodically** to maintain security
+6. **expectedAnswer used as shared secret** for ongoing server-coordinator communication
 
 **Challenge Flow:**
 ```
@@ -204,6 +214,19 @@ Server: expectedAnswer = hash(challenge + shared_secret)
 Client: answer = hash(challenge + password)
 Coordinator: if (answer == expectedAnswer) → allow connection
 ```
+
+### Coordinator State Management
+
+**Memory-Compact Server Registry:**
+- Uses server ECDSA public keys as map keys
+- Each entry contains minimal data:
+  - `ipPort`: IP:port combination (for identifying UDP messages)
+  - `challenge`: Current challenge for clients
+  - `expectedAnswer`: Used as shared secret for ongoing communication
+  - `timestamp`: For expiry checking
+- **Periodic cleanup** removes expired server records
+- **Separate connection log** tracks connection attempts for rate limiting
+- Minimal state design improves scalability and reduces memory usage
 
 ### Signaling Security (ECDSA Signatures)
 
@@ -266,7 +289,8 @@ node server/scripts/generate-keys.js
 **Key Distribution:**
 - Coordinator public key: Embedded in client and server configurations
 - Server public keys: Distributed to clients via secure channel (QR code, config file, or manual entry)
-- Clients verify all signatures before trusting data
+- **expectedAnswer**: Used as shared secret for ongoing server-coordinator communication after initial ECDH
+- Clients verify ECDSA signatures for initial connection and SDP/candidate payloads
 
 ### WebRTC Security
 
@@ -274,6 +298,7 @@ Once signaling is complete and verified:
 - **DTLS**: All WebRTC dataChannels use DTLS encryption
 - **Peer-to-Peer**: Direct connection between client and server
 - **Coordinator Cannot Intercept**: Only helps establish connection, cannot see data
+- **Minimal Coordinator State**: Only stores IP:port, challenge, expectedAnswer, and timestamp
 
 ## 🚀 Getting Started
 
@@ -442,15 +467,14 @@ Server **initiates** UDP connection to coordinator using ECDH.
 
 **Challenge Refresh Heartbeat (every ~10 minutes):**
 ```javascript
+// Uses expectedAnswer as HMAC key, no ECDSA signature needed
 {
   type: 'heartbeat',
-  serverPublicKey: 'hex-encoded-ecdsa-public-key',
-  timestamp: Date.now(),
   payload: {
     refreshChallenge: 'new-challenge-hex',
     challengeAnswerHash: 'new-expected-hash'
   },
-  signature: 'hex-encoded-ecdsa-signature'
+  hmac: 'hmac-using-expectedAnswer-as-key'
 }
 ```
 
@@ -609,9 +633,9 @@ homechannel/
 │       └── config.js         # Coordinator + server keys
 ├── server/
 │   ├── index.js
-│   ├── udp.js                # UDP with ECDH + ECDSA
+│   ├── udp.js                # UDP: ECDH initial, HMAC ongoing
 │   ├── webrtc.js
-│   ├── crypto.js             # ECDSA signing, ECDH
+│   ├── crypto.js             # ECDSA signing, ECDH, HMAC
 │   ├── challenge.js          # Challenge generation
 │   ├── config.json
 │   ├── keys/
@@ -627,10 +651,12 @@ homechannel/
 ├── coordinator/
 │   ├── index.js
 │   ├── https.js              # HTTPS server for clients
-│   ├── udp.js                # UDP with ECDH + ECDSA
-│   ├── crypto.js             # ECDSA verification, ECDH
-│   ├── registry.js           # Server registry + challenges
+│   ├── udp.js                # UDP: ECDH initial, HMAC ongoing
+│   ├── crypto.js             # ECDSA verification, ECDH, HMAC
+│   ├── registry.js           # Memory-compact map: publicKey → state
 │   ├── relay.js              # Payload relay
+│   ├── cleanup.js            # Periodic cleanup of expired servers
+│   ├── ratelimit.js          # Connection attempt rate limiting
 │   ├── config.json
 │   ├── keys/
 │   │   ├── coordinator-private.key

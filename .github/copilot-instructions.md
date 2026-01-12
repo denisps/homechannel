@@ -61,20 +61,21 @@ The project consists of three independent components:
 - **Servers** identified by their ECDSA public keys
 - **Server initiates** communication with coordinator using ECDH (Elliptic Curve Diffie-Hellman)
 - Use P-256 (secp256r1) curve for compatibility
-- All payloads are ECDSA-signed:
-  - Coordinator verifies server payloads using server's public key
-  - Server verifies coordinator responses using coordinator's public key
-  - Client verifies both coordinator and server signatures
+- **Initial registration** is ECDSA-signed and verified
+- **Ongoing communication** uses expectedAnswer as shared secret key (derived from ECDH)
+  - Avoids round-trips and excessive state
+  - No coordinator signature needed after initial ECDH
+  - Server identified by IP:port combination
 
 #### Challenge-Response Authentication
 - **Server generates challenge** for each connection attempt (included in payload to coordinator)
 - **Client must answer challenge correctly** to proceed (verifies client knows password)
 - **Purpose**: Prevents brute-force attacks and DDoS on the server
-- **Challenge refresh**: Every 10 minutes via full heartbeat message
+- **Challenge refresh**: Every 10 minutes using expectedAnswer as secret key
 - **Keepalive heartbeat**: Tiny UDP messages every ~30 seconds to keep NAT ports open
   - Identified by IP:port combination only
   - No signature or timestamp (minimal overhead)
-  - Only challenge refresh heartbeats (every 10 min) include signature and new challenge
+  - Challenge refresh uses expectedAnswer for authentication (no ECDSA signature needed)
 
 #### WebRTC Signaling Flow
 1. Server registers with coordinator, includes challenge for clients
@@ -83,6 +84,17 @@ The project consists of three independent components:
 4. Server replies with its own signed payload (SDP + all ICE candidates)
 5. Coordinator delivers server payload to client
 6. **Direct datachannel** established between client and server (peer-to-peer)
+
+#### Coordinator State Management
+- **Memory-compact server registry** using server ECDSA public keys as map keys
+- Each entry contains only:
+  - IP:port (for identifying UDP messages)
+  - Current challenge
+  - Expected answer (used as shared secret for ongoing communication)
+  - Timestamp (for expiry)
+- **Periodic cleanup** of expired server records
+- **Separate connection log** for rate limiting connection attempts
+- Minimal state reduces memory usage and improves scalability
 
 ## Coding Standards
 
@@ -202,15 +214,14 @@ The project consists of three independent components:
 }
 
 // Challenge refresh heartbeat (every ~10 minutes)
+// Uses expectedAnswer as secret key, no ECDSA signature needed
 {
   type: 'heartbeat',
-  serverPublicKey: 'hex-encoded-ecdsa-public-key',
-  timestamp: Date.now(),
   payload: {
     newChallenge: 'refreshed-challenge-hex',
     challengeAnswerHash: 'new-expected-hash'
   },
-  signature: 'hex-encoded-ecdsa-signature'
+  hmac: 'hmac-using-expectedAnswer-as-key'
 }
 
 // Server -> Coordinator: SDP answer + all ICE candidates
@@ -292,6 +303,18 @@ function hashChallengeAnswer(challenge, password) {
   const hash = crypto.createHash('sha256');
   hash.update(challenge + password);
   return hash.digest('hex');
+}
+
+// HMAC using expectedAnswer as shared secret (for ongoing server-coordinator communication)
+function createHMAC(data, expectedAnswer) {
+  const hmac = crypto.createHmac('sha256', expectedAnswer);
+  hmac.update(JSON.stringify(data));
+  return hmac.digest('hex');
+}
+
+function verifyHMAC(data, hmacValue, expectedAnswer) {
+  const expected = createHMAC(data, expectedAnswer);
+  return crypto.timingSafeEqual(Buffer.from(hmacValue, 'hex'), Buffer.from(expected, 'hex'));
 }
 ```
 
