@@ -162,7 +162,7 @@ Each component has its own ECDSA key pair:
    - Stores known server public keys
    - Verifies signatures from both coordinator and server
 
-### Server-Coordinator Communication (ECDH + Shared Secret)
+### Server-Coordinator Communication (ECDH + Shared Secret + AES-CTR)
 
 **Initial Connection:**
 - Server initiates UDP connection to coordinator
@@ -170,8 +170,9 @@ Each component has its own ECDSA key pair:
 - Server verifies coordinator's ECDSA signature
 - Coordinator verifies server's payload using server's public key
 - **expectedAnswer becomes shared secret** for ongoing communication
+- **Registration message is unencrypted** (initial ECDH exchange)
 
-**Registration Message:**
+**Registration Message (UNENCRYPTED):**
 ```
 Server → Coordinator:
 {
@@ -182,18 +183,20 @@ Server → Coordinator:
 }
 ```
 
-**Ongoing Communication:**
-- Uses **expectedAnswer as shared secret key** (no ECDSA signatures needed)
+**Ongoing Communication (AES-CTR ENCRYPTED):**
+- All messages after registration are **AES-CTR encrypted** using expectedAnswer as key
+- 256-bit AES key derived from expectedAnswer using SHA-256
+- Random IV for each message (prepended to ciphertext)
 - Server identified by IP:port combination
 - Avoids round-trips and excessive state
-- HMAC authentication using expectedAnswer
+- HMAC authentication for challenge updates
 
 **Periodic Heartbeat:**
-- Tiny UDP messages every ~30 seconds (keepalive)
+- Tiny UDP messages every ~30 seconds (keepalive) - **ENCRYPTED**
 - Identified by IP:port combination only
 - No signature or timestamp for keepalive (minimal bandwidth)
 - Keeps UDP ports open for NAT traversal
-- Challenge refresh every ~10 minutes using HMAC (expectedAnswer as key)
+- Challenge refresh every ~10 minutes using HMAC (expectedAnswer as key) - **ENCRYPTED**
 
 ### Challenge-Response Authentication
 
@@ -441,7 +444,7 @@ export const config = {
 
 Server **initiates** UDP connection to coordinator using ECDH.
 
-**Registration Message:**
+**Registration Message (UNENCRYPTED - Initial ECDH):**
 ```javascript
 {
   type: 'register',
@@ -457,9 +460,12 @@ Server **initiates** UDP connection to coordinator using ECDH.
 }
 ```
 
+**All messages below are AES-CTR ENCRYPTED using expectedAnswer as key**
+
 **Tiny Keepalive Heartbeat (every ~30s):**
 ```javascript
 // Minimal message, identified by IP:port only
+// Encrypted with AES-CTR
 {
   type: 'ping'
 }
@@ -467,7 +473,7 @@ Server **initiates** UDP connection to coordinator using ECDH.
 
 **Challenge Refresh Heartbeat (every ~10 minutes):**
 ```javascript
-// Uses expectedAnswer as HMAC key, no ECDSA signature needed
+// Uses expectedAnswer as HMAC key, encrypted with AES-CTR
 {
   type: 'heartbeat',
   payload: {
@@ -480,6 +486,7 @@ Server **initiates** UDP connection to coordinator using ECDH.
 
 **Answer Message (response to client offer):**
 ```javascript
+// Encrypted with AES-CTR
 {
   type: 'answer',
   serverPublicKey: 'hex-encoded-ecdsa-public-key',

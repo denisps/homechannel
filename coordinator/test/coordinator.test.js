@@ -3,7 +3,7 @@ import assert from 'node:assert';
 import dgram from 'dgram';
 import { ServerRegistry } from '../registry.js';
 import { UDPServer } from '../udp.js';
-import { generateECDSAKeyPair, signData, verifySignature, createHMAC, generateChallenge, hashChallengeAnswer } from '../crypto.js';
+import { generateECDSAKeyPair, signData, verifySignature, createHMAC, generateChallenge, hashChallengeAnswer, deriveAESKey, encryptAES, decryptAES } from '../crypto.js';
 
 /**
  * Mock server for testing
@@ -21,7 +21,13 @@ class MockServer {
   async start() {
     return new Promise((resolve) => {
       this.socket.on('message', (msg) => {
-        this.responses.push(JSON.parse(msg.toString()));
+        // Try to parse as JSON, if fails, it's encrypted
+        try {
+          this.responses.push(JSON.parse(msg.toString()));
+        } catch (e) {
+          // Store encrypted response for later decryption
+          this.responses.push({ encrypted: msg.toString() });
+        }
       });
 
       this.socket.bind(() => {
@@ -36,6 +42,7 @@ class MockServer {
       challengeAnswerHash: expectedAnswer
     };
 
+    // Registration is unencrypted (initial ECDH)
     const message = {
       type: 'register',
       serverPublicKey: this.serverPublicKey,
@@ -44,12 +51,12 @@ class MockServer {
       signature: signData({ serverPublicKey: this.serverPublicKey, timestamp: Date.now(), payload }, this.serverPrivateKey)
     };
 
-    return this.send(message, coordinatorPort);
+    return this.send(message, coordinatorPort, false); // false = unencrypted
   }
 
-  sendPing(coordinatorPort) {
+  sendPing(coordinatorPort, expectedAnswer) {
     const message = { type: 'ping' };
-    return this.send(message, coordinatorPort);
+    return this.send(message, coordinatorPort, true, expectedAnswer); // true = encrypted
   }
 
   sendHeartbeat(coordinatorPort, expectedAnswer, newChallenge, newExpectedAnswer) {
@@ -64,10 +71,10 @@ class MockServer {
       hmac: createHMAC(payload, expectedAnswer)
     };
 
-    return this.send(message, coordinatorPort);
+    return this.send(message, coordinatorPort, true, expectedAnswer); // true = encrypted
   }
 
-  sendAnswer(coordinatorPort, sessionId, sdp, candidates) {
+  sendAnswer(coordinatorPort, expectedAnswer, sessionId, sdp, candidates) {
     const payload = { sdp, candidates };
 
     const message = {
@@ -84,12 +91,23 @@ class MockServer {
       }, this.serverPrivateKey)
     };
 
-    return this.send(message, coordinatorPort);
+    return this.send(message, coordinatorPort, true, expectedAnswer); // true = encrypted
   }
 
-  send(message, coordinatorPort) {
+  send(message, coordinatorPort, encrypt = false, expectedAnswer = null) {
     return new Promise((resolve, reject) => {
-      const buffer = Buffer.from(JSON.stringify(message));
+      let buffer;
+      
+      if (encrypt && expectedAnswer) {
+        // Encrypt message using expectedAnswer as key
+        const key = deriveAESKey(expectedAnswer);
+        const encryptedHex = encryptAES(message, key);
+        buffer = Buffer.from(encryptedHex);
+      } else {
+        // Unencrypted (registration only)
+        buffer = Buffer.from(JSON.stringify(message));
+      }
+      
       this.socket.send(buffer, coordinatorPort, 'localhost', (err) => {
         if (err) reject(err);
         else resolve();
@@ -267,8 +285,8 @@ describe('Coordinator with Mock Server', () => {
     // Wait a bit
     await new Promise(resolve => setTimeout(resolve, 50));
 
-    // Send ping
-    await mockServer.sendPing(coordinatorPort);
+    // Send encrypted ping
+    await mockServer.sendPing(coordinatorPort, expectedAnswer);
     await new Promise(resolve => setTimeout(resolve, 100));
 
     const timestampAfter = registry.getServerByPublicKey(mockServer.serverPublicKey).timestamp;
@@ -320,7 +338,7 @@ describe('Coordinator with Mock Server', () => {
       receivedSessionId = sid;
     });
 
-    await mockServer.sendAnswer(coordinatorPort, sessionId, sdp, candidates);
+    await mockServer.sendAnswer(coordinatorPort, expectedAnswer, sessionId, sdp, candidates);
     await new Promise(resolve => setTimeout(resolve, 100));
 
     assert.strictEqual(answerReceived, true);

@@ -1,5 +1,5 @@
 import dgram from 'dgram';
-import { verifySignature, verifyHMAC } from './crypto.js';
+import { verifySignature, verifyHMAC, deriveAESKey, decryptAES, encryptAES } from './crypto.js';
 
 /**
  * UDP server for server-coordinator communication
@@ -41,11 +41,34 @@ export class UDPServer {
 
   /**
    * Handle incoming UDP message
+   * Registration (initial ECDH) is unencrypted, all other messages are AES-CTR encrypted
    */
   handleMessage(msg, rinfo) {
     try {
-      const message = JSON.parse(msg.toString());
       const ipPort = `${rinfo.address}:${rinfo.port}`;
+      let message;
+      
+      // Try to parse as JSON first (for unencrypted registration/initial ECDH)
+      try {
+        message = JSON.parse(msg.toString());
+        
+        // Only 'register' type should be unencrypted
+        if (message.type !== 'register') {
+          console.warn(`Received unencrypted non-registration message: ${message.type}`);
+          return;
+        }
+      } catch (jsonError) {
+        // If JSON parse fails, this is an encrypted message (ping, heartbeat, answer)
+        const expectedAnswer = this.registry.getExpectedAnswer(ipPort);
+        if (!expectedAnswer) {
+          console.error('Cannot decrypt message: server not registered');
+          return;
+        }
+        
+        // Decrypt using expectedAnswer as key
+        const key = deriveAESKey(expectedAnswer);
+        message = decryptAES(msg.toString(), key);
+      }
 
       switch (message.type) {
         case 'register':
@@ -191,11 +214,24 @@ export class UDPServer {
   }
 
   /**
-   * Send message to server
+   * Send message to server (encrypted if expectedAnswer is available)
    */
   sendToServer(ipPort, data) {
     const [address, port] = ipPort.split(':');
-    const message = Buffer.from(JSON.stringify(data));
+    
+    // Get expectedAnswer for encryption
+    const expectedAnswer = this.registry.getExpectedAnswer(ipPort);
+    
+    let message;
+    if (expectedAnswer) {
+      // Encrypt message using expectedAnswer as key
+      const key = deriveAESKey(expectedAnswer);
+      const encryptedHex = encryptAES(data, key);
+      message = Buffer.from(encryptedHex);
+    } else {
+      // Unencrypted (for initial responses before registration)
+      message = Buffer.from(JSON.stringify(data));
+    }
     
     return new Promise((resolve, reject) => {
       this.socket.send(message, parseInt(port), address, (err) => {

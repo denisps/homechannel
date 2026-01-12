@@ -101,3 +101,56 @@ export function hashChallengeAnswer(challenge, password) {
   hash.update(challenge + password);
   return hash.digest('hex');
 }
+
+/**
+ * Derive AES key from expectedAnswer
+ */
+export function deriveAESKey(expectedAnswer) {
+  // Use SHA-256 to derive a 256-bit key
+  const hash = crypto.createHash('sha256');
+  hash.update(expectedAnswer);
+  return hash.digest();
+}
+
+/**
+ * Encrypt data with AES-CTR
+ */
+export function encryptAES(data, key) {
+  // Generate random IV (16 bytes for AES)
+  const iv = crypto.randomBytes(16);
+  
+  // Create cipher
+  const cipher = crypto.createCipheriv('aes-256-ctr', key, iv);
+  
+  // Encrypt data
+  const dataBuffer = Buffer.from(JSON.stringify(data), 'utf8');
+  const encrypted = Buffer.concat([cipher.update(dataBuffer), cipher.final()]);
+  
+  // Return IV + encrypted data as hex
+  return Buffer.concat([iv, encrypted]).toString('hex');
+}
+
+/**
+ * Decrypt data with AES-CTR
+ */
+export function decryptAES(encryptedHex, key) {
+  try {
+    // Convert from hex
+    const buffer = Buffer.from(encryptedHex, 'hex');
+    
+    // Extract IV (first 16 bytes)
+    const iv = buffer.slice(0, 16);
+    const encrypted = buffer.slice(16);
+    
+    // Create decipher
+    const decipher = crypto.createDecipheriv('aes-256-ctr', key, iv);
+    
+    // Decrypt
+    const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
+    
+    // Parse JSON
+    return JSON.parse(decrypted.toString('utf8'));
+  } catch (error) {
+    throw new Error('Decryption failed: ' + error.message);
+  }
+}

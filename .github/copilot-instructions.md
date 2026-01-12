@@ -61,10 +61,10 @@ The project consists of three independent components:
 - **Servers** identified by their ECDSA public keys
 - **Server initiates** communication with coordinator using ECDH (Elliptic Curve Diffie-Hellman)
 - Use P-256 (secp256r1) curve for compatibility
-- **Initial registration** is ECDSA-signed and verified
+- **Initial registration** is ECDSA-signed and verified (unencrypted)
 - **Ongoing communication** uses expectedAnswer as shared secret key (derived from ECDH)
+  - All messages after registration are AES-CTR encrypted using expectedAnswer
   - Avoids round-trips and excessive state
-  - No coordinator signature needed after initial ECDH
   - Server identified by IP:port combination
 
 #### Challenge-Response Authentication
@@ -75,7 +75,8 @@ The project consists of three independent components:
 - **Keepalive heartbeat**: Tiny UDP messages every ~30 seconds to keep NAT ports open
   - Identified by IP:port combination only
   - No signature or timestamp (minimal overhead)
-  - Challenge refresh uses expectedAnswer for authentication (no ECDSA signature needed)
+  - AES-CTR encrypted using expectedAnswer as key
+  - Challenge refresh uses HMAC for authentication (no ECDSA signature needed)
 
 #### WebRTC Signaling Flow
 1. Server registers with coordinator, includes challenge for clients
@@ -195,7 +196,7 @@ The project consists of three independent components:
 
 ### UDP Message Format
 ```javascript
-// Server -> Coordinator registration message
+// Server -> Coordinator registration message (UNENCRYPTED - initial ECDH)
 {
   type: 'register',
   serverPublicKey: 'hex-encoded-ecdsa-public-key',
@@ -206,6 +207,8 @@ The project consists of three independent components:
   },
   signature: 'hex-encoded-ecdsa-signature'
 }
+
+// All messages below are AES-CTR ENCRYPTED using expectedAnswer as key
 
 // Tiny keepalive heartbeat (every ~30s)
 // Identified by IP:port only, no signature or timestamp
@@ -315,6 +318,30 @@ function createHMAC(data, expectedAnswer) {
 function verifyHMAC(data, hmacValue, expectedAnswer) {
   const expected = createHMAC(data, expectedAnswer);
   return crypto.timingSafeEqual(Buffer.from(hmacValue, 'hex'), Buffer.from(expected, 'hex'));
+}
+
+// AES-CTR encryption using expectedAnswer as key (for UDP messages after registration)
+function deriveAESKey(expectedAnswer) {
+  const hash = crypto.createHash('sha256');
+  hash.update(expectedAnswer);
+  return hash.digest(); // 256-bit key
+}
+
+function encryptAES(data, key) {
+  const iv = crypto.randomBytes(16); // Random IV
+  const cipher = crypto.createCipheriv('aes-256-ctr', key, iv);
+  const dataBuffer = Buffer.from(JSON.stringify(data), 'utf8');
+  const encrypted = Buffer.concat([cipher.update(dataBuffer), cipher.final()]);
+  return Buffer.concat([iv, encrypted]).toString('hex'); // IV + encrypted
+}
+
+function decryptAES(encryptedHex, key) {
+  const buffer = Buffer.from(encryptedHex, 'hex');
+  const iv = buffer.slice(0, 16); // Extract IV
+  const encrypted = buffer.slice(16);
+  const decipher = crypto.createDecipheriv('aes-256-ctr', key, iv);
+  const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
+  return JSON.parse(decrypted.toString('utf8'));
 }
 ```
 

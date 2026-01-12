@@ -79,7 +79,7 @@ npm run test:watch
 
 ### UDP Messages
 
-**Registration** (from server):
+**Registration** (from server, UNENCRYPTED - initial ECDH):
 ```javascript
 {
   type: 'register',
@@ -92,6 +92,8 @@ npm run test:watch
   signature: 'ecdsa-signature'
 }
 ```
+
+**All messages below are AES-CTR ENCRYPTED using expectedAnswer as key**
 
 **Keepalive Ping** (from server, every ~30s):
 ```javascript
@@ -149,8 +151,11 @@ Map<serverPublicKey, {
 
 ## Security
 
-- **Initial Registration**: ECDSA signature verification
-- **Ongoing Communication**: HMAC authentication using expectedAnswer
+- **Initial Registration**: ECDSA signature verification (unencrypted ECDH exchange)
+- **Ongoing Communication**: AES-CTR encryption using expectedAnswer as key
+  - 256-bit AES key derived from expectedAnswer
+  - Random IV for each message
+  - HMAC authentication for challenge updates
 - **No Round-trips**: Shared secret eliminates signature overhead
 - **Rate Limiting**: Connection attempt tracking per client
 - **Challenge Refresh**: Periodic challenge updates for security
