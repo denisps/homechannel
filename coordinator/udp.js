@@ -165,9 +165,7 @@ export class UDPServer {
       const key = deriveAESKey(sharedSecret.toString('hex'));
       const signatureData = { 
         timestamp, 
-        signature: signature.toString('hex'),
-        coordinatorECDHPubKey: ecdhKeys.publicKey.toString('hex'),
-        serverECDHPubKey: decoded.ecdhPublicKey.toString('hex')
+        signature: signature.toString('hex')
       };
       const encryptedData = encryptAES(signatureData, key);
       
@@ -214,27 +212,18 @@ export class UDPServer {
       // Decrypt registration message
       const message = decryptAES(payload, key);
       
-      const { serverPublicKey, timestamp, payload: regPayload, signature, serverECDHPubKey, coordinatorECDHPubKey } = message;
+      const { serverPublicKey, timestamp, payload: regPayload, signature } = message;
 
-      if (!serverPublicKey || !regPayload || !signature || !serverECDHPubKey || !coordinatorECDHPubKey) {
+      if (!serverPublicKey || !regPayload || !signature) {
         console.error('Invalid registration message');
         return;
       }
 
-      // Verify ECDH public keys match session (prevent MITM)
-      const sessionServerPubKey = session.serverECDHPublicKey.toString('hex');
-      const sessionCoordPubKey = session.ecdhKeys.publicKey.toString('hex');
-      
-      if (serverECDHPubKey !== sessionServerPubKey || coordinatorECDHPubKey !== sessionCoordPubKey) {
-        console.error('ECDH public key mismatch - possible MITM attack');
-        return;
-      }
-
       // Verify server's ECDSA signature on both ECDH public keys
-      // Server must sign: (serverECDHPubKey + coordinatorECDHPubKey) to bind them
+      // Use session-stored keys to reconstruct what server should have signed
       const ecdhKeysData = Buffer.concat([
-        Buffer.from(serverECDHPubKey, 'hex'),
-        Buffer.from(coordinatorECDHPubKey, 'hex')
+        session.serverECDHPublicKey,
+        session.ecdhKeys.publicKey
       ]);
       
       const dataToVerify = { 

@@ -70,15 +70,13 @@ Both parties compute ECDH shared secret. Coordinator signs **both ECDH public ke
 ```javascript
 {
   timestamp: 1234567890,
-  signature: 'hex-signature-of-both-ecdh-keys',
-  coordinatorECDHPubKey: 'hex-string',
-  serverECDHPubKey: 'hex-string'
+  signature: 'hex-signature-of-both-ecdh-keys'
 }
 ```
 
-Server decrypts and verifies coordinator's identity using trusted coordinator public key.
+Server uses its own ECDH public key (which it already knows) and the coordinator's ECDH public key (received in this message) to verify the signature and confirm coordinator's identity.
 
-**Security**: Coordinator proves its identity and binds both ECDH keys together. Observer cannot impersonate coordinator, perform MITM attack, or see the signature.
+**Security**: Coordinator proves its identity and binds both ECDH keys together. Observer cannot impersonate coordinator, perform MITM attack, or see the signature. No redundant transmission of keys.
 
 #### Phase 3: Registration (Server → Coordinator)
 
@@ -97,8 +95,6 @@ Encrypted JSON payload:
     challenge: 'hex-string',
     challengeAnswerHash: 'hex-string'
   },
-  serverECDHPubKey: 'hex-string',
-  coordinatorECDHPubKey: 'hex-string',
   signature: 'ecdsa-hex-signature'
 }
 ```
@@ -113,9 +109,9 @@ The signature is computed over the JSON representation of:
 }
 ```
 
-By signing both ECDH public keys, the server binds them together, preventing MITM attacks where an attacker could substitute their own ECDH key.
+By signing both ECDH public keys, the server binds them together. The coordinator verifies this using the session-stored ECDH keys, preventing MITM attacks where an attacker could substitute their own ECDH key. No redundant transmission of keys - coordinator already knows its own ECDH public key.
 
-**Security**: Server identity (ECDSA public key) and challenge data only revealed after encryption established. Both ECDH keys are cryptographically bound via signature. Observer cannot see challenge, identify server, or perform MITM attack.
+**Security**: Server identity (ECDSA public key) and challenge data only revealed after encryption established. Both ECDH keys are cryptographically bound via signature. Observer cannot see challenge, identify server, or perform MITM attack. Minimal data transmission.
 
 After registration, the `challengeAnswerHash` (expectedAnswer) becomes the shared secret for all future communication.
 

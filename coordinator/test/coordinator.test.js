@@ -98,10 +98,11 @@ class MockServer {
     const signatureData = decryptAES(decoded.encryptedData, key);
     
     // Verify coordinator's signature on both ECDH keys if we have coordinator's public key
-    if (this.coordinatorPublicKey && signatureData.coordinatorECDHPubKey && signatureData.serverECDHPubKey) {
+    if (this.coordinatorPublicKey) {
+      // Reconstruct what coordinator signed: coordinator's ECDH key + server's ECDH key
       const dataToVerify = Buffer.concat([
-        Buffer.from(signatureData.coordinatorECDHPubKey, 'hex'),
-        Buffer.from(signatureData.serverECDHPubKey, 'hex')
+        decoded.ecdhPublicKey,  // Coordinator's ECDH public key
+        ecdhKeys.publicKey      // Server's ECDH public key (our own)
       ]);
       const signature = Buffer.from(signatureData.signature, 'hex');
       
@@ -125,18 +126,16 @@ class MockServer {
       challengeAnswerHash: expectedAnswer
     };
     
-    // Server signs both ECDH keys to bind them
+    // Server signs both ECDH keys to bind them (no need to send keys back)
     const ecdhKeysData = Buffer.concat([
-      ecdhKeys.publicKey,
-      decoded.ecdhPublicKey
+      ecdhKeys.publicKey,       // Server's ECDH public key
+      decoded.ecdhPublicKey     // Coordinator's ECDH public key
     ]);
     
     const regMessage = {
       serverPublicKey: this.serverPublicKey,
       timestamp: regTimestamp,
       payload: regPayload,
-      serverECDHPubKey: ecdhKeys.publicKey.toString('hex'),
-      coordinatorECDHPubKey: decoded.ecdhPublicKey.toString('hex'),
       signature: signData({ 
         ecdhKeys: ecdhKeysData.toString('hex'),
         serverPublicKey: this.serverPublicKey, 
@@ -491,18 +490,11 @@ describe('Coordinator with Mock Server', () => {
       challengeAnswerHash: expectedAnswer
     };
 
-    // Need to include ECDH keys but with wrong signature
-    const ecdhKeysData = Buffer.concat([
-      ecdhKeys.publicKey,
-      decoded.ecdhPublicKey
-    ]);
-
+    // Create message with wrong signature (don't need to send ECDH keys)
     const message = {
       serverPublicKey: testMockServer.serverPublicKey,
       timestamp: Date.now(),
       payload: regPayload,
-      serverECDHPubKey: ecdhKeys.publicKey.toString('hex'),
-      coordinatorECDHPubKey: decoded.ecdhPublicKey.toString('hex'),
       signature: 'invalid-signature'
     };
 
