@@ -19,7 +19,7 @@ import {
   verifyBinarySignature,
   encodeECDHInit,
   decodeECDHResponse
-} from '../crypto.js';
+} from '../../shared/crypto.js';
 
 /**
  * Binary protocol constants
