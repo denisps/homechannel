@@ -1,7 +1,7 @@
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert';
 import dgram from 'dgram';
-import { UDPClient } from '../udp.js';
+import { UDPClient } from '../../shared/protocol.js';
 import { 
   generateECDSAKeyPair, 
   generateECDHKeyPair,

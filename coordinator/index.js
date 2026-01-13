@@ -1,6 +1,6 @@
 import fs from 'fs';
 import { ServerRegistry } from './registry.js';
-import { UDPServer } from './udp.js';
+import { UDPServer } from '../shared/protocol.js';
 import { loadKeys, generateECDSAKeyPair } from '../shared/crypto.js';
 
 /**

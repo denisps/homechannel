@@ -2,7 +2,7 @@ import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert';
 import dgram from 'dgram';
 import { ServerRegistry } from '../registry.js';
-import { UDPServer } from '../udp.js';
+import { UDPServer } from '../../shared/protocol.js';
 import { PROTOCOL_VERSION, MESSAGE_TYPES } from '../../shared/protocol.js';
 import { 
   generateECDSAKeyPair, 

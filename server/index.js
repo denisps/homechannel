@@ -1,5 +1,5 @@
 import fs from 'fs';
-import { UDPClient } from './udp.js';
+import { UDPClient } from '../shared/protocol.js';
 import { WebRTCPeer } from './webrtc.js';
 import { loadKeys, generateECDSAKeyPair } from '../shared/crypto.js';
 
