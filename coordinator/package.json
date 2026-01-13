@@ -1,0 +1,20 @@
+{
+  "name": "homechannel-coordinator",
+  "version": "0.1.0",
+  "description": "HomeChannel coordinator - signaling server for WebRTC datachannel connections",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "test": "node --test test/*.test.js",
+    "test:watch": "node --test --watch test/*.test.js"
+  },
+  "keywords": ["webrtc", "signaling", "coordinator", "p2p"],
+  "author": "",
+  "license": "GPL-3.0",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}

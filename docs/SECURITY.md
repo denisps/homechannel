@@ -1,0 +1,170 @@
+# Security Architecture
+
+HomeChannel's security model balances strong cryptography with minimal overhead.
+
+## Three-Party Key System
+
+Each component has its own ECDSA key pair:
+
+### 1. Coordinator Keys
+- Own ECDSA P-256 key pair
+- Public key trusted by both clients and servers
+- Signs all relayed messages
+
+### 2. Server Keys
+- Each server has unique ECDSA P-256 key pair
+- Identified by public key
+- Signs all payloads sent through coordinator
+
+### 3. Client Trust
+- Stores coordinator's public key
+- Stores known server public keys
+- Verifies all signatures before trusting data
+
+## Cryptographic Operations
+
+### ECDSA Signatures (P-256)
+- **Curve**: secp256r1 (NIST P-256)
+- **Digest**: SHA-256
+- **Use**: Initial registration, SDP/candidate exchange
+
+### AES-CTR Encryption
+- **Algorithm**: AES-256-CTR
+- **Key**: Derived from expectedAnswer via SHA-256
+- **IV**: Random 16 bytes per message
+- **Use**: All server-coordinator UDP after registration
+
+### HMAC Authentication
+- **Algorithm**: HMAC-SHA-256
+- **Key**: expectedAnswer (shared secret)
+- **Use**: Challenge refresh messages
+
+### Key Derivation
+```javascript
+// Derive 256-bit AES key from expectedAnswer
+function deriveAESKey(expectedAnswer) {
+  const hash = crypto.createHash('sha256');
+  hash.update(expectedAnswer);
+  return hash.digest(); // 32 bytes
+}
+```
+
+## Challenge-Response Authentication
+
+Prevents brute-force and DDoS attacks on home servers.
+
+### Flow
+
+1. **Server generates challenge**: Random 16 bytes
+2. **Server computes expectedAnswer**: `SHA256(challenge + shared_secret)`
+3. **Client computes answer**: `SHA256(challenge + password)`
+4. **Coordinator verifies**: `answer === expectedAnswer`
+5. **Connection proceeds** only if answer is correct
+
+### Properties
+
+- **Short challenge**: Minimizes bandwidth (16 bytes)
+- **Periodic refresh**: Every 10 minutes
+- **No brute-force**: Wrong answers rejected at coordinator
+- **No DDoS**: Server never sees unauthorized connection attempts
+
+## Communication Security
+
+### Phase 1: Initial Registration (Unencrypted)
+
+**Why unencrypted?**
+- Initial ECDH exchange must be verifiable
+- ECDSA signature provides authenticity
+- No shared secret exists yet
+
+**Protection:**
+- ECDSA signature prevents tampering
+- Coordinator verifies against server's public key
+- Replay attacks mitigated by timestamp checking
+
+### Phase 2: Ongoing Communication (AES-CTR Encrypted)
+
+**Why AES-CTR?**
+- Confidentiality for all server-coordinator traffic
+- Stream cipher properties (no padding)
+- Fast and efficient
+
+**Protection:**
+- Random IV prevents pattern analysis
+- expectedAnswer as shared secret
+- HMAC for message authentication
+
+## WebRTC Security
+
+Once datachannel is established:
+
+- **DTLS**: All WebRTC connections use DTLS encryption
+- **Peer-to-Peer**: Direct connection between client and server
+- **No Coordinator**: Coordinator cannot intercept data
+- **Perfect Forward Secrecy**: WebRTC provides PFS
+
+## Threat Model
+
+### Protected Against
+
+✅ **Man-in-the-Middle**: ECDSA signatures + AES encryption
+✅ **Eavesdropping**: AES-CTR encryption of all sensitive data
+✅ **Brute-Force**: Challenge-response at coordinator
+✅ **DDoS**: Server never sees unauthorized attempts
+✅ **Replay Attacks**: Timestamps + random IVs
+✅ **Pattern Analysis**: Random IVs prevent traffic analysis
+
+### Not Protected Against
+
+❌ **Compromised Coordinator**: Can see challenges (but not peer data)
+❌ **Stolen Keys**: Physical access to key files
+❌ **Weak Passwords**: Challenge-response only as strong as password
+❌ **Browser Vulnerabilities**: Client runs in browser context
+
+## Key Management
+
+### Coordinator Keys
+
+```bash
+# Generated on first run
+./keys/coordinator-private.key  # chmod 600
+./keys/coordinator-public.key   # Distributed to all
+```
+
+### Server Keys
+
+```bash
+# Generated per server
+./keys/server-private.key  # chmod 600, keep secret
+./keys/server-public.key   # Share with authorized clients
+```
+
+### Key Distribution
+
+- **Coordinator Public Key**: Embedded in client and server configs
+- **Server Public Keys**: Distributed via secure channel (QR code, config file)
+- **expectedAnswer**: Never transmitted, derived from challenge
+
+## Best Practices
+
+1. **Use Strong Passwords**: expectedAnswer security depends on it
+2. **Secure Key Storage**: File permissions 600 for private keys
+3. **Regular Updates**: Keep Node.js and dependencies updated
+4. **Monitor Logs**: Watch for unusual connection patterns
+5. **Rotate Challenges**: Automatic every 10 minutes
+6. **Limit Coordinators**: Trust only one coordinator per deployment
+
+## Security Assumptions
+
+- **Coordinator is Trusted**: Verifies challenges, relays messages
+- **TLS for HTTPS**: Client-coordinator uses TLS (not specified here)
+- **Physical Security**: Private keys stored securely
+- **Network Security**: Home network is reasonably secure
+
+## Future Enhancements
+
+- [ ] Certificate pinning for coordinator
+- [ ] Multi-coordinator support with key rotation
+- [ ] Hardware security module (HSM) support
+- [ ] Audit logging and intrusion detection
+- [ ] Rate limiting enhancements

@@ -1,0 +1,16 @@
+{
+  "https": {
+    "port": 8443,
+    "certPath": "./keys/cert.pem",
+    "keyPath": "./keys/key.pem"
+  },
+  "udp": {
+    "port": 3478
+  },
+  "privateKeyPath": "./keys/coordinator-private.key",
+  "publicKeyPath": "./keys/coordinator-public.key",
+  "maxServers": 1000,
+  "serverTimeout": 300000,
+  "keepaliveInterval": 30000,
+  "challengeRefreshInterval": 600000
+}
