@@ -3,6 +3,7 @@ import assert from 'node:assert';
 import dgram from 'dgram';
 import { ServerRegistry } from '../registry.js';
 import { UDPServer } from '../udp.js';
+import { PROTOCOL_VERSION, MESSAGE_TYPES } from '../../shared/protocol.js';
 import { 
   generateECDSAKeyPair, 
   signData, 
@@ -20,19 +21,6 @@ import {
   encodeECDHInit,
   decodeECDHResponse
 } from '../../shared/crypto.js';
-
-/**
- * Binary protocol constants
- */
-const PROTOCOL_VERSION = 0x01;
-const MESSAGE_TYPES = {
-  ECDH_INIT: 0x01,
-  ECDH_RESPONSE: 0x02,
-  REGISTER: 0x03,
-  PING: 0x04,
-  HEARTBEAT: 0x05,
-  ANSWER: 0x06
-};
 
 /**
  * Mock server for testing (uses ECDH-based binary protocol)

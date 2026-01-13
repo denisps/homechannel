@@ -81,14 +81,24 @@ See [PROTOCOL.md](docs/PROTOCOL.md) for detailed specifications.
 - [PROTOCOL.md](docs/PROTOCOL.md) - Detailed protocol specifications
 - [SECURITY.md](docs/SECURITY.md) - Security architecture and cryptography
 - [ARCHITECTURE.md](docs/ARCHITECTURE.md) - System design and components
+- [shared/crypto.js](shared/crypto.js) - Shared crypto primitives (ECDSA, ECDH, AES-CTR, HMAC)
+- [shared/protocol.js](shared/protocol.js) - Shared protocol constants and UDP framing helpers
 - [coordinator/README.md](coordinator/README.md) - Coordinator implementation
 - [.github/copilot-instructions.md](.github/copilot-instructions.md) - Development guidelines
 
 ## Development
 
 ```bash
+# Run shared crypto/protocol tests
+cd shared
+npm test
+
 # Run coordinator tests
-cd coordinator
+cd ../coordinator
+npm test
+
+# Run server tests
+cd ../server
 npm test
 
 # Run in watch mode

@@ -1,28 +1,7 @@
 import dgram from 'dgram';
+import { PROTOCOL_VERSION, MESSAGE_TYPES, MESSAGE_TYPE_NAMES, buildUDPMessage, parseUDPMessage } from '../shared/protocol.js';
 import { verifySignature, verifyHMAC, deriveAESKey, decryptAES, encryptAES, generateECDHKeyPair, computeECDHSecret, signBinaryData, verifyBinarySignature, decodeECDHInit, encodeECDHResponse } from '../shared/crypto.js';
 
-/**
- * Binary protocol constants
- */
-const PROTOCOL_VERSION = 0x01;
-const MESSAGE_TYPES = {
-  ECDH_INIT: 0x01,      // Phase 1: Server sends ECDH public key
-  ECDH_RESPONSE: 0x02,  // Phase 2: Coordinator responds with ECDH public key
-  REGISTER: 0x03,       // Phase 3: Server sends encrypted registration
-  PING: 0x04,           // Keepalive
-  HEARTBEAT: 0x05,      // Challenge refresh
-  ANSWER: 0x06          // SDP answer
-};
-
-// Reverse mapping for logging
-const MESSAGE_TYPE_NAMES = {
-  0x01: 'ecdh_init',
-  0x02: 'ecdh_response',
-  0x03: 'register',
-  0x04: 'ping',
-  0x05: 'heartbeat',
-  0x06: 'answer'
-};
 
 /**
  * UDP server for server-coordinator communication
@@ -86,21 +65,7 @@ export class UDPServer {
     try {
       const ipPort = `${rinfo.address}:${rinfo.port}`;
       
-      // Minimum message size: version + type
-      if (msg.length < 2) {
-        console.error('Message too short');
-        return;
-      }
-
-      const version = msg[0];
-      const messageType = msg[1];
-      const payload = msg.slice(2);
-
-      // Check protocol version
-      if (version !== PROTOCOL_VERSION) {
-        console.error(`Unsupported protocol version: ${version}`);
-        return;
-      }
+      const { messageType, payload } = parseUDPMessage(msg);
 
       let message;
 
@@ -171,10 +136,7 @@ export class UDPServer {
       
       // Encode and send ECDH response
       const responsePayload = encodeECDHResponse(ecdhKeys.publicKey, encryptedData);
-      const message = Buffer.concat([
-        Buffer.from([PROTOCOL_VERSION, MESSAGE_TYPES.ECDH_RESPONSE]),
-        responsePayload
-      ]);
+      const message = buildUDPMessage(MESSAGE_TYPES.ECDH_RESPONSE, responsePayload);
       
       this.socket.send(message, rinfo.port, rinfo.address, (err) => {
         if (err) {
@@ -246,10 +208,7 @@ export class UDPServer {
         // Send acknowledgment (encrypted with shared secret)
         const ackMessage = { status: 'ok', type: 'register' };
         const encryptedAck = encryptAES(ackMessage, key);
-        const response = Buffer.concat([
-          Buffer.from([PROTOCOL_VERSION, MESSAGE_TYPES.REGISTER]),
-          encryptedAck
-        ]);
+        const response = buildUDPMessage(MESSAGE_TYPES.REGISTER, encryptedAck);
         
         this.socket.send(response, rinfo.port, rinfo.address, (err) => {
           if (err) {
@@ -389,10 +348,7 @@ export class UDPServer {
     }
     
     // Build binary message: [version][type][payload]
-    const message = Buffer.concat([
-      Buffer.from([PROTOCOL_VERSION, messageType]),
-      payload
-    ]);
+    const message = buildUDPMessage(messageType, payload);
     
     return new Promise((resolve, reject) => {
       this.socket.send(message, parseInt(port), address, (err) => {

@@ -15,28 +15,8 @@ import {
   signBinaryData,
   verifyHMAC
 } from '../shared/crypto.js';
+import { PROTOCOL_VERSION, MESSAGE_TYPES, MESSAGE_TYPE_NAMES, buildUDPMessage, parseUDPMessage } from '../shared/protocol.js';
 
-/**
- * Binary protocol constants
- */
-const PROTOCOL_VERSION = 0x01;
-const MESSAGE_TYPES = {
-  ECDH_INIT: 0x01,      // Phase 1: Server sends ECDH public key
-  ECDH_RESPONSE: 0x02,  // Phase 2: Coordinator responds with ECDH public key
-  REGISTER: 0x03,       // Phase 3: Server sends encrypted registration
-  PING: 0x04,           // Keepalive
-  HEARTBEAT: 0x05,      // Challenge refresh
-  ANSWER: 0x06          // SDP answer
-};
-
-const MESSAGE_TYPE_NAMES = {
-  0x01: 'ecdh_init',
-  0x02: 'ecdh_response',
-  0x03: 'register',
-  0x04: 'ping',
-  0x05: 'heartbeat',
-  0x06: 'answer'
-};
 
 /**
  * UDP client for server-coordinator communication
@@ -113,10 +93,7 @@ export class UDPClient {
       const payload = encodeECDHInit(ecdhKeys.publicKey);
       
       // Send Phase 1: ECDH init
-      const message = Buffer.concat([
-        Buffer.from([PROTOCOL_VERSION, MESSAGE_TYPES.ECDH_INIT]),
-        payload
-      ]);
+      const message = buildUDPMessage(MESSAGE_TYPES.ECDH_INIT, payload);
       
       this.socket.send(message, this.coordinatorPort, this.coordinatorHost, (err) => {
         if (err) {
@@ -136,19 +113,7 @@ export class UDPClient {
    */
   handleMessage(msg) {
     try {
-      if (msg.length < 2) {
-        console.error('Message too short');
-        return;
-      }
-
-      const version = msg[0];
-      const messageType = msg[1];
-      const payload = msg.slice(2);
-
-      if (version !== PROTOCOL_VERSION) {
-        console.error(`Unsupported protocol version: ${version}`);
-        return;
-      }
+      const { messageType, payload } = parseUDPMessage(msg);
 
       const typeName = MESSAGE_TYPE_NAMES[messageType] || 'unknown';
       console.log(`Received ${typeName} message`);
@@ -258,10 +223,7 @@ export class UDPClient {
       const encryptedPayload = encryptAES(fullPayload, key);
 
       // Send Phase 3: Registration
-      const message = Buffer.concat([
-        Buffer.from([PROTOCOL_VERSION, MESSAGE_TYPES.REGISTER]),
-        encryptedPayload
-      ]);
+      const message = buildUDPMessage(MESSAGE_TYPES.REGISTER, encryptedPayload);
 
       this.socket.send(message, this.coordinatorPort, this.coordinatorHost, (err) => {
         if (err) {
@@ -306,10 +268,7 @@ export class UDPClient {
     try {
       const payload = encryptAES({ type: 'ping' }, this.aesKey);
       
-      const message = Buffer.concat([
-        Buffer.from([PROTOCOL_VERSION, MESSAGE_TYPES.PING]),
-        payload
-      ]);
+      const message = buildUDPMessage(MESSAGE_TYPES.PING, payload);
 
       this.socket.send(message, this.coordinatorPort, this.coordinatorHost, (err) => {
         if (err) {
@@ -373,10 +332,7 @@ export class UDPClient {
 
       const payload = encryptAES(answerData, this.aesKey);
 
-      const message = Buffer.concat([
-        Buffer.from([PROTOCOL_VERSION, MESSAGE_TYPES.ANSWER]),
-        payload
-      ]);
+      const message = buildUDPMessage(MESSAGE_TYPES.ANSWER, payload);
 
       this.socket.send(message, this.coordinatorPort, this.coordinatorHost, (err) => {
         if (err) {

@@ -10,26 +10,10 @@ import {
   encryptAES,
   decryptAES,
   signBinaryData,
-  verifyBinarySignature,
-  encodeECDHInit,
   encodeECDHResponse,
-  generateChallenge,
-  hashChallengeAnswer,
   signData
 } from '../../shared/crypto.js';
-
-/**
- * Binary protocol constants (must match server implementation)
- */
-const PROTOCOL_VERSION = 0x01;
-const MESSAGE_TYPES = {
-  ECDH_INIT: 0x01,
-  ECDH_RESPONSE: 0x02,
-  REGISTER: 0x03,
-  PING: 0x04,
-  HEARTBEAT: 0x05,
-  ANSWER: 0x06
-};
+import { PROTOCOL_VERSION, MESSAGE_TYPES } from '../../shared/protocol.js';
 
 /**
  * Mock coordinator for testing
@@ -233,63 +217,4 @@ describe('Server UDP Module', () => {
     await client.stop();
   });
 
-  test('Challenge answer should be consistent', () => {
-    const challenge = generateChallenge();
-    const password = 'test-password';
-    
-    const answer1 = hashChallengeAnswer(challenge, password);
-    const answer2 = hashChallengeAnswer(challenge, password);
-    
-    assert.strictEqual(answer1, answer2);
-  });
-
-  test('Crypto encryption/decryption should work', () => {
-    const key = deriveAESKey('test-expected-answer');
-    const data = { type: 'test', value: 123 };
-    
-    const encrypted = encryptAES(data, key);
-    const decrypted = decryptAES(encrypted, key);
-    
-    assert.deepStrictEqual(decrypted, data);
-  });
-
-  test('ECDH key exchange should produce same secret', () => {
-    const ecdh1 = generateECDHKeyPair();
-    const ecdh2 = generateECDHKeyPair();
-    
-    const secret1 = computeECDHSecret(ecdh1.privateKey, ecdh2.publicKey);
-    const secret2 = computeECDHSecret(ecdh2.privateKey, ecdh1.publicKey);
-    
-    assert.deepStrictEqual(secret1, secret2);
-  });
-
-  test('Binary signature should verify', () => {
-    const keys = generateECDSAKeyPair();
-    const data = Buffer.from('test data');
-    
-    const signature = signBinaryData(data, keys.privateKey);
-    const verified = verifyBinarySignature(data, signature, keys.publicKey);
-    
-    assert.strictEqual(verified, true);
-  });
-
-  test('Encode/decode ECDH init should work', () => {
-    const ecdh = generateECDHKeyPair();
-    const encoded = encodeECDHInit(ecdh.publicKey);
-    
-    assert.ok(Buffer.isBuffer(encoded));
-    assert.ok(encoded.length > 1);
-    assert.strictEqual(encoded[0], ecdh.publicKey.length);
-  });
-
-  test('Invalid data should not verify signature', () => {
-    const keys = generateECDSAKeyPair();
-    const data = Buffer.from('test data');
-    const wrongData = Buffer.from('wrong data');
-    
-    const signature = signBinaryData(data, keys.privateKey);
-    const verified = verifyBinarySignature(wrongData, signature, keys.publicKey);
-    
-    assert.strictEqual(verified, false);
-  });
 });

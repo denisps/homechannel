@@ -1,0 +1,15 @@
+{
+  "name": "homechannel-shared",
+  "version": "0.1.0",
+  "description": "Shared cryptography and protocol helpers for HomeChannel",
+  "main": "crypto.js",
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "test:watch": "node --test --watch test/*.test.js"
+  },
+  "license": "GPL-3.0",
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
