@@ -153,13 +153,22 @@ export class UDPServer {
         timestamp: Date.now()
       });
       
-      // Sign coordinator's ECDH public key with coordinator's ECDSA key
+      // Sign both ECDH public keys (coordinator's + server's) to bind them and prevent MITM
       const timestamp = Date.now();
-      const signature = signBinaryData(ecdhKeys.publicKey, this.coordinatorKeys.privateKey);
+      const dataToSign = Buffer.concat([
+        ecdhKeys.publicKey,
+        decoded.ecdhPublicKey
+      ]);
+      const signature = signBinaryData(dataToSign, this.coordinatorKeys.privateKey);
       
       // Encrypt signature data with shared secret
       const key = deriveAESKey(sharedSecret.toString('hex'));
-      const signatureData = { timestamp, signature: signature.toString('hex') };
+      const signatureData = { 
+        timestamp, 
+        signature: signature.toString('hex'),
+        coordinatorECDHPubKey: ecdhKeys.publicKey.toString('hex'),
+        serverECDHPubKey: decoded.ecdhPublicKey.toString('hex')
+      };
       const encryptedData = encryptAES(signatureData, key);
       
       // Encode and send ECDH response
@@ -205,15 +214,35 @@ export class UDPServer {
       // Decrypt registration message
       const message = decryptAES(payload, key);
       
-      const { serverPublicKey, timestamp, payload: regPayload, signature } = message;
+      const { serverPublicKey, timestamp, payload: regPayload, signature, serverECDHPubKey, coordinatorECDHPubKey } = message;
 
-      if (!serverPublicKey || !regPayload || !signature) {
+      if (!serverPublicKey || !regPayload || !signature || !serverECDHPubKey || !coordinatorECDHPubKey) {
         console.error('Invalid registration message');
         return;
       }
 
-      // Verify ECDSA signature
-      const dataToVerify = { serverPublicKey, timestamp, payload: regPayload };
+      // Verify ECDH public keys match session (prevent MITM)
+      const sessionServerPubKey = session.serverECDHPublicKey.toString('hex');
+      const sessionCoordPubKey = session.ecdhKeys.publicKey.toString('hex');
+      
+      if (serverECDHPubKey !== sessionServerPubKey || coordinatorECDHPubKey !== sessionCoordPubKey) {
+        console.error('ECDH public key mismatch - possible MITM attack');
+        return;
+      }
+
+      // Verify server's ECDSA signature on both ECDH public keys
+      // Server must sign: (serverECDHPubKey + coordinatorECDHPubKey) to bind them
+      const ecdhKeysData = Buffer.concat([
+        Buffer.from(serverECDHPubKey, 'hex'),
+        Buffer.from(coordinatorECDHPubKey, 'hex')
+      ]);
+      
+      const dataToVerify = { 
+        ecdhKeys: ecdhKeysData.toString('hex'),
+        serverPublicKey, 
+        timestamp, 
+        payload: regPayload 
+      };
       if (!verifySignature(dataToVerify, signature, serverPublicKey)) {
         console.error('Invalid signature in registration');
         return;
