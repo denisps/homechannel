@@ -17,21 +17,7 @@ HomeChannel enables direct peer-to-peer connections between browser clients and 
 
 ## Architecture
 
-```
-┌─────────────────┐         ┌──────────────────┐         ┌─────────────────┐
-│  Client         │◄───────►│   Coordinator    │◄───────►│  Home Server    │
-│  (Browser)      │  HTTPS  │   (Public)       │   UDP   │  (Local Net)    │
-│                 │ Polling │                  │ AES-CTR │                 │
-└────────┬────────┘         └──────────────────┘         └────────┬────────┘
-         │                                                          │
-         │                 WebRTC Datachannel (Direct P2P)         │
-         └──────────────────────────────────────────────────────────┘
-                                    │
-                            ┌───────▼────────┐
-                            │  VNC, SSH,     │
-                            │  File Access   │
-                            └────────────────┘
-```
+![HomeChannel Architecture](docs/architecture-diagram.svg)
 
 **Three Components:**
 

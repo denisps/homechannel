@@ -1,5 +1,5 @@
 import dgram from 'dgram';
-import { verifySignature, verifyHMAC, deriveAESKey, decryptAES, encryptAES, generateECDHKeyPair, computeECDHSecret, signBinaryData, verifyBinarySignature, decodeECDHInit, encodeECDHResponse } from './crypto.js';
+import { verifySignature, verifyHMAC, deriveAESKey, decryptAES, encryptAES, generateECDHKeyPair, computeECDHSecret, signBinaryData, verifyBinarySignature, decodeECDHInit, encodeECDHResponse } from '../shared/crypto.js';
 
 /**
  * Binary protocol constants
@@ -153,13 +153,20 @@ export class UDPServer {
         timestamp: Date.now()
       });
       
-      // Sign coordinator's ECDH public key with coordinator's ECDSA key
+      // Sign both ECDH public keys (coordinator's + server's) to bind them and prevent MITM
       const timestamp = Date.now();
-      const signature = signBinaryData(ecdhKeys.publicKey, this.coordinatorKeys.privateKey);
+      const dataToSign = Buffer.concat([
+        ecdhKeys.publicKey,
+        decoded.ecdhPublicKey
+      ]);
+      const signature = signBinaryData(dataToSign, this.coordinatorKeys.privateKey);
       
       // Encrypt signature data with shared secret
       const key = deriveAESKey(sharedSecret.toString('hex'));
-      const signatureData = { timestamp, signature: signature.toString('hex') };
+      const signatureData = { 
+        timestamp, 
+        signature: signature.toString('hex')
+      };
       const encryptedData = encryptAES(signatureData, key);
       
       // Encode and send ECDH response
@@ -212,8 +219,19 @@ export class UDPServer {
         return;
       }
 
-      // Verify ECDSA signature
-      const dataToVerify = { serverPublicKey, timestamp, payload: regPayload };
+      // Verify server's ECDSA signature on both ECDH public keys
+      // Use session-stored keys to reconstruct what server should have signed
+      const ecdhKeysData = Buffer.concat([
+        session.serverECDHPublicKey,
+        session.ecdhKeys.publicKey
+      ]);
+      
+      const dataToVerify = { 
+        ecdhKeys: ecdhKeysData.toString('hex'),
+        serverPublicKey, 
+        timestamp, 
+        payload: regPayload 
+      };
       if (!verifySignature(dataToVerify, signature, serverPublicKey)) {
         console.error('Invalid signature in registration');
         return;

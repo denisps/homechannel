@@ -16,9 +16,10 @@ import {
   generateECDHKeyPair,
   computeECDHSecret,
   signBinaryData,
+  verifyBinarySignature,
   encodeECDHInit,
   decodeECDHResponse
-} from '../crypto.js';
+} from '../../shared/crypto.js';
 
 /**
  * Binary protocol constants
@@ -37,11 +38,12 @@ const MESSAGE_TYPES = {
  * Mock server for testing (uses ECDH-based binary protocol)
  */
 class MockServer {
-  constructor() {
+  constructor(coordinatorPublicKey = null) {
     this.socket = dgram.createSocket('udp4');
     this.keys = generateECDSAKeyPair();
     this.serverPublicKey = this.keys.publicKey;
     this.serverPrivateKey = this.keys.privateKey;
+    this.coordinatorPublicKey = coordinatorPublicKey;
     this.coordinatorPort = 0;
     this.responses = [];
     this.sharedSecret = null;
@@ -95,10 +97,23 @@ class MockServer {
     const key = deriveAESKey(this.sharedSecret.toString('hex'));
     const signatureData = decryptAES(decoded.encryptedData, key);
     
-    // Here we would verify coordinator's signature if we had coordinator's public key
-    // For now, just check that decryption worked and we got valid data
-    if (!signatureData.timestamp || !signatureData.signature) {
-      throw new Error('Invalid signature data in ECDH response');
+    // Verify coordinator's signature on both ECDH keys if we have coordinator's public key
+    if (this.coordinatorPublicKey) {
+      // Reconstruct what coordinator signed: coordinator's ECDH key + server's ECDH key
+      const dataToVerify = Buffer.concat([
+        decoded.ecdhPublicKey,  // Coordinator's ECDH public key
+        ecdhKeys.publicKey      // Server's ECDH public key (our own)
+      ]);
+      const signature = Buffer.from(signatureData.signature, 'hex');
+      
+      if (!verifyBinarySignature(dataToVerify, signature, this.coordinatorPublicKey)) {
+        throw new Error('Invalid coordinator signature on ECDH keys');
+      }
+    } else {
+      // Just check that decryption worked and we got valid data
+      if (!signatureData.timestamp || !signatureData.signature) {
+        throw new Error('Invalid signature data in ECDH response');
+      }
     }
     
     // Clear responses
@@ -111,11 +126,18 @@ class MockServer {
       challengeAnswerHash: expectedAnswer
     };
     
+    // Server signs both ECDH keys to bind them (no need to send keys back)
+    const ecdhKeysData = Buffer.concat([
+      ecdhKeys.publicKey,       // Server's ECDH public key
+      decoded.ecdhPublicKey     // Coordinator's ECDH public key
+    ]);
+    
     const regMessage = {
       serverPublicKey: this.serverPublicKey,
       timestamp: regTimestamp,
       payload: regPayload,
       signature: signData({ 
+        ecdhKeys: ecdhKeysData.toString('hex'),
         serverPublicKey: this.serverPublicKey, 
         timestamp: regTimestamp, 
         payload: regPayload 
@@ -333,8 +355,8 @@ describe('Coordinator with Mock Server', () => {
     await udpServer.start();
     coordinatorPort = udpServer.socket.address().port;
 
-    // Create and start mock server
-    mockServer = new MockServer();
+    // Create and start mock server with coordinator's public key
+    mockServer = new MockServer(coordinatorKeys.publicKey);
     await mockServer.start();
   });
 
@@ -441,20 +463,13 @@ describe('Coordinator with Mock Server', () => {
 
   test('should reject invalid signature in registration', async () => {
     // Create a fresh mock server with new keys for this test
-    const testMockServer = new MockServer();
+    const testMockServer = new MockServer(coordinatorKeys.publicKey);
     await testMockServer.start();
 
-    // Phase 1: Send ECDH init (this will work)
+    // Phase 1: Send ECDH init (only ECDH public key, no signature)
     const ecdhKeys = generateECDHKeyPair();
-    const timestamp = Date.now();
-    const signature = signBinaryData(ecdhKeys.publicKey, testMockServer.serverPrivateKey);
     
-    const ecdhInitPayload = encodeECDHInit(
-      ecdhKeys.publicKey,
-      testMockServer.serverPublicKey,
-      timestamp,
-      signature
-    );
+    const ecdhInitPayload = encodeECDHInit(ecdhKeys.publicKey);
     
     await testMockServer.sendBinary(ecdhInitPayload, coordinatorPort, MESSAGE_TYPES.ECDH_INIT);
     await new Promise(resolve => setTimeout(resolve, 100));
@@ -475,6 +490,7 @@ describe('Coordinator with Mock Server', () => {
       challengeAnswerHash: expectedAnswer
     };
 
+    // Create message with wrong signature (don't need to send ECDH keys)
     const message = {
       serverPublicKey: testMockServer.serverPublicKey,
       timestamp: Date.now(),

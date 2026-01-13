@@ -63,11 +63,20 @@ Binary Payload Format:
 Fields:
 - `ecdhPubKeyLen` (1 byte): Length of coordinator's ECDH public key
 - `ecdhPubKey` (variable): Coordinator's ECDH public key (raw bytes)
-- `encryptedData` (variable): AES-CTR encrypted `{timestamp, signature}`
+- `encryptedData` (variable): AES-CTR encrypted signature data
 
-Both parties compute ECDH shared secret. Coordinator signs its ECDH public key with its ECDSA private key, then encrypts the signature data using AES-CTR with key derived from the shared secret. Server decrypts and verifies coordinator's identity using trusted coordinator public key.
+Both parties compute ECDH shared secret. Coordinator signs **both ECDH public keys** (coordinator's + server's) with its ECDSA private key to bind them together and prevent MITM attacks. The signature data is encrypted using AES-CTR with key derived from the shared secret:
 
-**Security**: Coordinator proves its identity, but signature is encrypted. Observer cannot impersonate coordinator or see signature.
+```javascript
+{
+  timestamp: 1234567890,
+  signature: 'hex-signature-of-both-ecdh-keys'
+}
+```
+
+Server uses its own ECDH public key (which it already knows) and the coordinator's ECDH public key (received in this message) to verify the signature and confirm coordinator's identity.
+
+**Security**: Coordinator proves its identity and binds both ECDH keys together. Observer cannot impersonate coordinator, perform MITM attack, or see the signature. No redundant transmission of keys.
 
 #### Phase 3: Registration (Server → Coordinator)
 
@@ -90,9 +99,19 @@ Encrypted JSON payload:
 }
 ```
 
-The signature is computed over the JSON representation of `{serverPublicKey, timestamp, payload}`.
+The signature is computed over the JSON representation of:
+```javascript
+{
+  ecdhKeys: 'hex-concat-of-server-and-coordinator-ecdh-keys',
+  serverPublicKey,
+  timestamp,
+  payload
+}
+```
 
-**Security**: Server identity (ECDSA public key) and challenge data only revealed after encryption established. Observer cannot see challenge or identify server.
+By signing both ECDH public keys, the server binds them together. The coordinator verifies this using the session-stored ECDH keys, preventing MITM attacks where an attacker could substitute their own ECDH key. No redundant transmission of keys - coordinator already knows its own ECDH public key.
+
+**Security**: Server identity (ECDSA public key) and challenge data only revealed after encryption established. Both ECDH keys are cryptographically bound via signature. Observer cannot see challenge, identify server, or perform MITM attack. Minimal data transmission.
 
 After registration, the `challengeAnswerHash` (expectedAnswer) becomes the shared secret for all future communication.
 

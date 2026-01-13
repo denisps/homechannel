@@ -1,7 +1,7 @@
 import fs from 'fs';
 import { ServerRegistry } from './registry.js';
 import { UDPServer } from './udp.js';
-import { loadKeys, generateECDSAKeyPair } from './crypto.js';
+import { loadKeys, generateECDSAKeyPair } from '../shared/crypto.js';
 
 /**
  * HomeChannel Coordinator

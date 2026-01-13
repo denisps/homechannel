@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 400" width="800" height="400">
+  <defs>
+    <style>
+      .box { fill: #f6f8fa; stroke: #0969da; stroke-width: 2; }
+      .text { fill: #24292f; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif; font-size: 14px; text-anchor: middle; }
+      .label { font-size: 12px; font-weight: 600; }
+      .sublabel { font-size: 11px; fill: #57606a; }
+      .arrow { stroke: #0969da; stroke-width: 2; fill: none; marker-end: url(#arrowhead); }
+      .arrow-both { stroke: #0969da; stroke-width: 2; fill: none; marker-start: url(#arrowhead-start); marker-end: url(#arrowhead); }
+      .connection-label { font-size: 10px; fill: #0969da; font-weight: 500; }
+      .service-box { fill: #ddf4ff; stroke: #0969da; stroke-width: 1.5; }
+    </style>
+    <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <polygon points="0 0, 10 3, 0 6" fill="#0969da" />
+    </marker>
+    <marker id="arrowhead-start" markerWidth="10" markerHeight="10" refX="1" refY="3" orient="auto">
+      <polygon points="10 0, 0 3, 10 6" fill="#0969da" />
+    </marker>
+  </defs>
+
+  <!-- Client Box -->
+  <rect x="50" y="80" width="150" height="100" rx="8" class="box"/>
+  <text x="125" y="110" class="text label">Client</text>
+  <text x="125" y="130" class="text sublabel">(Browser)</text>
+
+  <!-- Coordinator Box -->
+  <rect x="325" y="30" width="150" height="100" rx="8" class="box"/>
+  <text x="400" y="60" class="text label">Coordinator</text>
+  <text x="400" y="80" class="text sublabel">(Public)</text>
+
+  <!-- Home Server Box -->
+  <rect x="600" y="80" width="150" height="100" rx="8" class="box"/>
+  <text x="675" y="110" class="text label">Home Server</text>
+  <text x="675" y="130" class="text sublabel">(Local Net)</text>
+
+  <!-- HTTPS Connection: Client to Coordinator -->
+  <path d="M 200 110 L 325 70" class="arrow-both"/>
+  <text x="240" y="75" class="text connection-label">HTTPS</text>
+  <text x="240" y="88" class="text connection-label">Polling</text>
+
+  <!-- UDP Connection: Coordinator to Server -->
+  <path d="M 475 90 L 600 110" class="arrow-both"/>
+  <text x="520" y="88" class="text connection-label">UDP</text>
+  <text x="520" y="101" class="text connection-label">AES-CTR</text>
+
+  <!-- WebRTC Direct P2P Connection -->
+  <path d="M 125 180 Q 400 280 675 180" class="arrow-both" stroke-dasharray="5,5"/>
+  <text x="400" y="265" class="text connection-label">WebRTC Datachannel (Direct P2P)</text>
+
+  <!-- Services Box -->
+  <rect x="325" y="310" width="150" height="60" rx="6" class="service-box"/>
+  <text x="400" y="333" class="text label" style="font-size: 12px;">VNC, SSH,</text>
+  <text x="400" y="351" class="text label" style="font-size: 12px;">File Access</text>
+
+  <!-- Arrow from P2P line to services -->
+  <path d="M 400 280 L 400 310" class="arrow"/>
+</svg>
