@@ -10,6 +10,7 @@ import {
   signBinaryData,
   verifyBinarySignature,
   verifyHMAC,
+  createHMAC,
   encodeECDHInit,
   decodeECDHInit,
   encodeECDHResponse,
@@ -85,6 +86,10 @@ export class UDPClient {
     this.keepaliveInterval = null;
     this.heartbeatInterval = null;
     this.state = 'disconnected'; // disconnected, registering, registered
+    
+    // Configurable intervals for testing
+    this.keepaliveIntervalMs = options.keepaliveIntervalMs || 30000; // 30 seconds default
+    this.heartbeatIntervalMs = options.heartbeatIntervalMs || 600000; // 10 minutes default
   }
 
   /**
@@ -330,17 +335,32 @@ export class UDPClient {
       if (this.registered && this.aesKey) {
         this.sendPing();
       }
-    }, 30000); // Every 30 seconds
+    }, this.keepaliveIntervalMs);
+    
+    // Also start heartbeat interval
+    this.startHeartbeat();
+  }
+  
+  /**
+   * Start heartbeat (challenge refresh)
+   */
+  startHeartbeat() {
+    if (this.heartbeatInterval) clearInterval(this.heartbeatInterval);
+    
+    this.heartbeatInterval = setInterval(() => {
+      if (this.registered && this.expectedAnswer) {
+        this.sendHeartbeat();
+      }
+    }, this.heartbeatIntervalMs);
   }
 
   /**
-   * Send ping message
+   * Send ping message (optimized - no encryption, minimal overhead)
    */
   sendPing() {
     try {
-      const payload = encryptAES({ type: 'ping' }, this.aesKey);
-      
-      const message = buildUDPMessage(MESSAGE_TYPES.PING, payload);
+      // Ping has no payload - just version and type bytes
+      const message = buildUDPMessage(MESSAGE_TYPES.PING, Buffer.alloc(0));
 
       this.socket.send(message, this.coordinatorPort, this.coordinatorHost, (err) => {
         if (err) {
@@ -349,6 +369,51 @@ export class UDPClient {
       });
     } catch (error) {
       console.error('Error sending ping:', error.message);
+    }
+  }
+
+  /**
+   * Send heartbeat (challenge refresh)
+   */
+  sendHeartbeat() {
+    try {
+      // Generate new challenge
+      const password = this.serverKeys.password || 'default';
+      const newChallenge = generateChallenge();
+      const newExpectedAnswer = hashChallengeAnswer(newChallenge, password);
+      
+      const hbPayload = {
+        newChallenge,
+        challengeAnswerHash: newExpectedAnswer
+      };
+      
+      // Create HMAC using current expectedAnswer
+      const hmac = createHMAC(hbPayload, this.expectedAnswer);
+      
+      const message = {
+        type: 'heartbeat',
+        payload: hbPayload,
+        hmac
+      };
+      
+      // Encrypt with current AES key (before updating)
+      const encryptedPayload = encryptAES(message, this.aesKey);
+      
+      const udpMessage = buildUDPMessage(MESSAGE_TYPES.HEARTBEAT, encryptedPayload);
+
+      this.socket.send(udpMessage, this.coordinatorPort, this.coordinatorHost, (err) => {
+        if (err) {
+          console.error('Error sending heartbeat:', err);
+        } else {
+          // Update local challenge and keys after sending
+          this.challenge = newChallenge;
+          this.expectedAnswer = newExpectedAnswer;
+          this.aesKey = deriveAESKey(this.expectedAnswer);
+          console.log('Heartbeat sent, challenge refreshed');
+        }
+      });
+    } catch (error) {
+      console.error('Error sending heartbeat:', error.message);
     }
   }
 
@@ -518,7 +583,7 @@ export class UDPServer {
           this.handleRegister(payload, ipPort, rinfo);
           break;
         case MESSAGE_TYPES.PING:
-          this.handlePing(ipPort, rinfo);
+          this.handlePing(payload, ipPort, rinfo);
           break;
         case MESSAGE_TYPES.HEARTBEAT:
           this.handleHeartbeat(payload, ipPort, rinfo);
@@ -668,10 +733,11 @@ export class UDPServer {
   }
 
   /**
-   * Handle keepalive ping
+   * Handle keepalive ping (optimized - no decryption needed)
    */
-  handlePing(ipPort, rinfo) {
-    // Update timestamp for server
+  handlePing(payload, ipPort, rinfo) {
+    // Ping is optimized - no payload to decrypt
+    // Simply update timestamp for server
     const updated = this.registry.updateTimestamp(ipPort);
     
     if (updated) {

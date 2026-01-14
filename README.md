@@ -64,9 +64,9 @@ cd ../server
 ## Protocol
 
 ### Server ↔ Coordinator (UDP)
-- **Registration**: ECDSA-signed, unencrypted (initial ECDH)
-- **Keepalive**: AES-CTR encrypted, every 30s
-- **Challenge Refresh**: AES-CTR encrypted, every 10 minutes
+- **Registration**: ECDSA-signed, encrypted with ECDH shared secret
+- **Keepalive**: Optimized ping (no payload, no encryption), every 30s
+- **Challenge Refresh**: AES-CTR encrypted heartbeat, every 10 minutes
 
 ### Client ↔ Coordinator (HTTPS)
 - Standard polling (no WebSockets)
