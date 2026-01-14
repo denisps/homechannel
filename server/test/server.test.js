@@ -87,6 +87,9 @@ class MockCoordinator {
         case MESSAGE_TYPES.PING:
           console.log('Received ping');
           break;
+        case MESSAGE_TYPES.HEARTBEAT:
+          this.handleHeartbeat(payload, ipPort, rinfo);
+          break;
         case MESSAGE_TYPES.ANSWER:
           console.log('Received answer');
           break;
@@ -190,6 +193,31 @@ class MockCoordinator {
     }
   }
 
+  handleHeartbeat(payload, ipPort, rinfo) {
+    try {
+      // Get server data
+      const server = Array.from(this.registeredServers.values()).find(s => s.ipPort === ipPort);
+      if (!server) {
+        console.error('Server not found for heartbeat');
+        return;
+      }
+
+      // Decrypt heartbeat
+      const key = deriveAESKey(server.expectedAnswer);
+      const message = decryptAES(payload, key);
+
+      console.log('Received heartbeat');
+
+      // Update challenge
+      if (message.payload) {
+        server.challenge = message.payload.newChallenge;
+        server.expectedAnswer = message.payload.challengeAnswerHash;
+      }
+    } catch (error) {
+      console.error('Error handling heartbeat:', error.message);
+    }
+  }
+
   async stop() {
     if (this.socket) {
       await new Promise((resolve) => {
@@ -271,8 +299,66 @@ describe('Server UDP Module', () => {
     assert.strictEqual(client.registered, true);
     assert.strictEqual(registeredCalled, true);
     
-    // Verify keepalive started
+    // Verify keepalive and heartbeat started
     assert.ok(client.keepaliveInterval);
+    assert.ok(client.heartbeatInterval);
+
+    await client.stop();
+  });
+
+  test('UDPClient should send pings with short interval', async () => {
+    const client = new UDPClient('127.0.0.1', coordinator.socket.address().port, serverKeys, {
+      coordinatorPublicKey: coordinator.coordinatorKeys.publicKey,
+      keepaliveIntervalMs: 150, // Short interval for testing
+      heartbeatIntervalMs: 10000 // Long to avoid interference
+    });
+
+    let pingsReceived = 0;
+    coordinator.socket.on('message', (msg) => {
+      if (msg.length >= 2 && msg[1] === 0x04) { // PING message type
+        pingsReceived++;
+      }
+    });
+
+    await client.start();
+    await withTimeout(
+      new Promise(resolve => client.on('registered', resolve)),
+      2000,
+      'Registration timed out'
+    );
+
+    // Wait for multiple pings
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    assert.ok(pingsReceived >= 2, `Should receive at least 2 pings, got ${pingsReceived}`);
+
+    await client.stop();
+  });
+
+  test('UDPClient should send heartbeats with short interval', async () => {
+    const client = new UDPClient('127.0.0.1', coordinator.socket.address().port, serverKeys, {
+      coordinatorPublicKey: coordinator.coordinatorKeys.publicKey,
+      keepaliveIntervalMs: 10000, // Long to avoid interference
+      heartbeatIntervalMs: 200 // Short interval for testing
+    });
+
+    const initialChallenge = client.challenge;
+
+    await client.start();
+    await withTimeout(
+      new Promise(resolve => client.on('registered', resolve)),
+      2000,
+      'Registration timed out'
+    );
+
+    const challengeAfterRegistration = client.challenge;
+    assert.ok(challengeAfterRegistration, 'Should have challenge after registration');
+
+    // Wait for at least one heartbeat to be sent
+    await new Promise(resolve => setTimeout(resolve, 600));
+
+    // Challenge should have been refreshed
+    assert.notStrictEqual(client.challenge, challengeAfterRegistration, 'Challenge should be refreshed after heartbeat');
 
     await client.stop();
   });
