@@ -531,4 +531,67 @@ describe('Coordinator with Mock Server', () => {
   });
 });
 
+describe('End-to-end Registration with Real UDPClient', () => {
+  let registry;
+  let udpServer;
+  let coordinatorKeys;
+  let coordinatorPort;
+
+  before(async () => {
+    // Generate coordinator keys
+    coordinatorKeys = generateECDSAKeyPair();
+
+    // Create registry and UDP server
+    registry = new ServerRegistry({ serverTimeout: 60000 });
+    udpServer = new UDPServer(registry, coordinatorKeys, { port: 0 });
+
+    // Start UDP server
+    await udpServer.start();
+    coordinatorPort = udpServer.socket.address().port;
+  });
+
+  after(async () => {
+    await udpServer.stop();
+    registry.destroy();
+  });
+
+  test('should successfully register server with signature verification', async () => {
+    // Import UDPClient dynamically to avoid circular dependency issues
+    const { UDPClient } = await import('../../shared/protocol.js');
+    
+    // Generate server keys
+    const serverKeys = generateECDSAKeyPair();
+    serverKeys.password = 'test-password';
+
+    // Create UDP client
+    const client = new UDPClient('127.0.0.1', coordinatorPort, serverKeys, {
+      coordinatorPublicKey: coordinatorKeys.publicKey
+    });
+
+    // Track registration event
+    let registeredEventFired = false;
+    client.on('registered', () => {
+      registeredEventFired = true;
+    });
+
+    // Start client and wait for registration
+    await client.start();
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    // Verify client thinks it's registered
+    assert.strictEqual(client.registered, true, 'Client should be registered');
+    assert.strictEqual(client.state, 'registered', 'Client state should be registered');
+    assert.strictEqual(registeredEventFired, true, 'Registered event should fire');
+
+    // Verify coordinator actually registered the server (signature was valid)
+    const server = registry.getServerByPublicKey(serverKeys.publicKey);
+    assert.ok(server, 'Server should be in registry');
+    assert.ok(server.challenge, 'Server should have challenge');
+    assert.ok(server.expectedAnswer, 'Server should have expectedAnswer');
+    assert.ok(server.ipPort, 'Server should have ipPort');
+
+    await client.stop();
+  });
+});
+
 console.log('All tests defined. Run with: npm test');
