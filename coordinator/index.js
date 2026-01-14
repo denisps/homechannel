@@ -1,7 +1,7 @@
 import fs from 'fs';
 import { ServerRegistry } from './registry.js';
 import { UDPServer } from '../shared/protocol.js';
-import { loadKeys, generateECDSAKeyPair } from '../shared/keys.js';
+import { loadKeys, generateECDSAKeyPair, saveKeys } from '../shared/keys.js';
 
 /**
  * HomeChannel Coordinator
@@ -19,22 +19,14 @@ class Coordinator {
   async init() {
     // Load or generate coordinator keys
     try {
-      if (fs.existsSync(this.config.privateKeyPath) && fs.existsSync(this.config.publicKeyPath)) {
-        this.coordinatorKeys = loadKeys(this.config.privateKeyPath, this.config.publicKeyPath);
+      this.coordinatorKeys = loadKeys(this.config.privateKeyPath, this.config.publicKeyPath);
+      
+      if (this.coordinatorKeys) {
         console.log('Loaded coordinator keys');
       } else {
         console.log('Generating new coordinator keys...');
         this.coordinatorKeys = generateECDSAKeyPair();
-        
-        // Create keys directory if it doesn't exist
-        const keysDir = this.config.privateKeyPath.substring(0, this.config.privateKeyPath.lastIndexOf('/'));
-        if (!fs.existsSync(keysDir)) {
-          fs.mkdirSync(keysDir, { recursive: true });
-        }
-        
-        // Save keys
-        fs.writeFileSync(this.config.privateKeyPath, this.coordinatorKeys.privateKey, { mode: 0o600 });
-        fs.writeFileSync(this.config.publicKeyPath, this.coordinatorKeys.publicKey);
+        saveKeys(this.config.privateKeyPath, this.config.publicKeyPath, this.coordinatorKeys);
         console.log('Coordinator keys generated and saved');
       }
     } catch (error) {

@@ -1,7 +1,6 @@
-import fs from 'fs';
 import { UDPClient } from '../shared/protocol.js';
 import { WebRTCPeer } from './webrtc.js';
-import { loadKeys, generateECDSAKeyPair } from '../shared/keys.js';
+import { loadKeys, generateECDSAKeyPair, saveKeys } from '../shared/keys.js';
 
 /**
  * HomeChannel Server
@@ -19,22 +18,14 @@ class Server {
   async init() {
     // Load or generate server keys
     try {
-      if (fs.existsSync(this.config.privateKeyPath) && fs.existsSync(this.config.publicKeyPath)) {
-        this.serverKeys = loadKeys(this.config.privateKeyPath, this.config.publicKeyPath);
+      this.serverKeys = loadKeys(this.config.privateKeyPath, this.config.publicKeyPath);
+      
+      if (this.serverKeys) {
         console.log('Loaded server keys');
       } else {
         console.log('Generating new server keys...');
         this.serverKeys = generateECDSAKeyPair();
-        
-        // Create keys directory if it doesn't exist
-        const keysDir = this.config.privateKeyPath.substring(0, this.config.privateKeyPath.lastIndexOf('/'));
-        if (!fs.existsSync(keysDir)) {
-          fs.mkdirSync(keysDir, { recursive: true });
-        }
-        
-        // Save keys
-        fs.writeFileSync(this.config.privateKeyPath, this.serverKeys.privateKey, { mode: 0o600 });
-        fs.writeFileSync(this.config.publicKeyPath, this.serverKeys.publicKey);
+        saveKeys(this.config.privateKeyPath, this.config.publicKeyPath, this.serverKeys);
         console.log('Server keys generated and saved');
       }
     } catch (error) {
