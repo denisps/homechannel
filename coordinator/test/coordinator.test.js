@@ -150,9 +150,9 @@ class MockServer {
     await this.sendBinary(encryptedPayload, coordinatorPort, MESSAGE_TYPES.REGISTER);
   }
 
-  sendPing(coordinatorPort, expectedAnswer) {
-    const message = { type: 'ping' };
-    return this.send(message, coordinatorPort, MESSAGE_TYPES.PING, true, expectedAnswer);
+  sendPing(coordinatorPort) {
+    // Ping is optimized - no payload, no encryption
+    return this.sendBinary(Buffer.alloc(0), coordinatorPort, MESSAGE_TYPES.PING);
   }
 
   sendHeartbeat(coordinatorPort, expectedAnswer, newChallenge, newExpectedAnswer) {
@@ -409,8 +409,8 @@ describe('Coordinator with Mock Server', () => {
     // Wait a bit
     await new Promise(resolve => setTimeout(resolve, 50));
 
-    // Send encrypted ping
-    await mockServer.sendPing(coordinatorPort, expectedAnswer);
+    // Send optimized ping (no encryption)
+    await mockServer.sendPing(coordinatorPort);
     await withTimeout(
       new Promise(resolve => setTimeout(resolve, 100)),
       500,
@@ -660,6 +660,215 @@ describe('End-to-end Registration with Real UDPClient', () => {
     assert.ok(server.challenge, 'Server should have challenge');
     assert.ok(server.expectedAnswer, 'Server should have expectedAnswer');
     assert.ok(server.ipPort, 'Server should have ipPort');
+
+    await client.stop();
+  });
+});
+
+describe('Ping and Heartbeat with Short Intervals', () => {
+  let registry;
+  let udpServer;
+  let coordinatorKeys;
+  let coordinatorPort;
+
+  before(async () => {
+    // Generate coordinator keys
+    coordinatorKeys = generateECDSAKeyPair();
+
+    // Create registry and UDP server
+    registry = new ServerRegistry({ serverTimeout: 60000 });
+    udpServer = new UDPServer(registry, coordinatorKeys, { port: 0 });
+
+    // Start UDP server
+    await udpServer.start();
+    coordinatorPort = udpServer.socket.address().port;
+  });
+
+  after(async () => {
+    await udpServer.stop();
+    registry.destroy();
+  });
+
+  test('should send ping automatically with short interval', async () => {
+    // Generate server keys
+    const serverKeys = generateECDSAKeyPair();
+    serverKeys.password = 'test-password';
+
+    // Create UDP client with SHORT keepalive interval (200ms for testing)
+    const client = new UDPClient('127.0.0.1', coordinatorPort, serverKeys, {
+      coordinatorPublicKey: coordinatorKeys.publicKey,
+      keepaliveIntervalMs: 200, // Short interval for testing
+      heartbeatIntervalMs: 10000 // Long interval to not interfere
+    });
+
+    // Track registration
+    const clientRegistrationPromise = new Promise((resolve) => {
+      client.on('registered', resolve);
+    });
+
+    // Track pings received by coordinator
+    let pingCount = 0;
+    udpServer.on('ping', () => {
+      pingCount++;
+    });
+
+    // Start client and wait for registration
+    await client.start();
+    await withTimeout(clientRegistrationPromise, 2000, 'Registration timed out');
+
+    const server = registry.getServerByPublicKey(serverKeys.publicKey);
+    const timestampBefore = server.timestamp;
+
+    // Wait for at least 2 pings (500ms should allow 2+ pings at 200ms interval)
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    assert.ok(pingCount >= 2, `Should receive at least 2 pings, got ${pingCount}`);
+
+    // Verify timestamp was updated
+    const timestampAfter = registry.getServerByPublicKey(serverKeys.publicKey).timestamp;
+    assert.ok(timestampAfter > timestampBefore, 'Timestamp should be updated after pings');
+
+    await client.stop();
+  });
+
+  test('should send heartbeat automatically with short interval', async () => {
+    // Generate server keys
+    const serverKeys = generateECDSAKeyPair();
+    serverKeys.password = 'test-password';
+
+    // Create UDP client with SHORT heartbeat interval (300ms for testing)
+    const client = new UDPClient('127.0.0.1', coordinatorPort, serverKeys, {
+      coordinatorPublicKey: coordinatorKeys.publicKey,
+      keepaliveIntervalMs: 10000, // Long interval to not interfere
+      heartbeatIntervalMs: 300 // Short interval for testing
+    });
+
+    // Track registration
+    const clientRegistrationPromise = new Promise((resolve) => {
+      client.on('registered', resolve);
+    });
+
+    // Track heartbeats received by coordinator
+    let heartbeatCount = 0;
+    udpServer.on('heartbeat', () => {
+      heartbeatCount++;
+    });
+
+    // Start client and wait for registration
+    await client.start();
+    await withTimeout(clientRegistrationPromise, 2000, 'Registration timed out');
+
+    const server = registry.getServerByPublicKey(serverKeys.publicKey);
+    const initialChallenge = server.challenge;
+    const initialExpectedAnswer = server.expectedAnswer;
+
+    // Wait for at least 2 heartbeats (800ms should allow 2+ heartbeats at 300ms interval)
+    await new Promise(resolve => setTimeout(resolve, 800));
+
+    assert.ok(heartbeatCount >= 2, `Should receive at least 2 heartbeats, got ${heartbeatCount}`);
+
+    // Verify challenge was updated on coordinator
+    const updatedServer = registry.getServerByPublicKey(serverKeys.publicKey);
+    assert.notStrictEqual(updatedServer.challenge, initialChallenge, 'Challenge should be updated');
+    assert.notStrictEqual(updatedServer.expectedAnswer, initialExpectedAnswer, 'Expected answer should be updated');
+
+    // Verify client's local challenge was also updated
+    assert.notStrictEqual(client.challenge, initialChallenge, 'Client challenge should be updated');
+    assert.notStrictEqual(client.expectedAnswer, initialExpectedAnswer, 'Client expected answer should be updated');
+
+    await client.stop();
+  });
+
+  test('should handle both ping and heartbeat concurrently', async () => {
+    // Generate server keys
+    const serverKeys = generateECDSAKeyPair();
+    serverKeys.password = 'test-password';
+
+    // Create UDP client with SHORT intervals for both
+    const client = new UDPClient('127.0.0.1', coordinatorPort, serverKeys, {
+      coordinatorPublicKey: coordinatorKeys.publicKey,
+      keepaliveIntervalMs: 150, // Very short for testing
+      heartbeatIntervalMs: 250 // Short for testing
+    });
+
+    // Track registration
+    const clientRegistrationPromise = new Promise((resolve) => {
+      client.on('registered', resolve);
+    });
+
+    // Track both pings and heartbeats
+    let pingCount = 0;
+    let heartbeatCount = 0;
+    
+    udpServer.on('ping', () => {
+      pingCount++;
+    });
+    
+    udpServer.on('heartbeat', () => {
+      heartbeatCount++;
+    });
+
+    // Start client and wait for registration
+    await client.start();
+    await withTimeout(clientRegistrationPromise, 2000, 'Registration timed out');
+
+    // Wait for multiple pings and heartbeats
+    await new Promise(resolve => setTimeout(resolve, 800));
+
+    assert.ok(pingCount >= 3, `Should receive at least 3 pings, got ${pingCount}`);
+    assert.ok(heartbeatCount >= 2, `Should receive at least 2 heartbeats, got ${heartbeatCount}`);
+
+    await client.stop();
+  });
+
+  test('should continue pings after heartbeat updates challenge', async () => {
+    // Generate server keys
+    const serverKeys = generateECDSAKeyPair();
+    serverKeys.password = 'test-password';
+
+    // Create UDP client with SHORT intervals
+    const client = new UDPClient('127.0.0.1', coordinatorPort, serverKeys, {
+      coordinatorPublicKey: coordinatorKeys.publicKey,
+      keepaliveIntervalMs: 100,
+      heartbeatIntervalMs: 250
+    });
+
+    // Track registration
+    const clientRegistrationPromise = new Promise((resolve) => {
+      client.on('registered', resolve);
+    });
+
+    // Track pings and heartbeats with timing
+    const events = [];
+    
+    udpServer.on('ping', () => {
+      events.push({ type: 'ping', time: Date.now() });
+    });
+    
+    udpServer.on('heartbeat', () => {
+      events.push({ type: 'heartbeat', time: Date.now() });
+    });
+
+    // Start client and wait for registration
+    await client.start();
+    await withTimeout(clientRegistrationPromise, 2000, 'Registration timed out');
+
+    // Wait for multiple cycles
+    await new Promise(resolve => setTimeout(resolve, 900));
+
+    // Verify we have both types of events
+    const pings = events.filter(e => e.type === 'ping');
+    const heartbeats = events.filter(e => e.type === 'heartbeat');
+    
+    assert.ok(pings.length >= 5, `Should have at least 5 pings, got ${pings.length}`);
+    assert.ok(heartbeats.length >= 2, `Should have at least 2 heartbeats, got ${heartbeats.length}`);
+    
+    // Verify pings continue after heartbeat (check for ping events after first heartbeat)
+    if (heartbeats.length > 0) {
+      const firstHeartbeatTime = heartbeats[0].time;
+      const pingsAfterHeartbeat = pings.filter(p => p.time > firstHeartbeatTime);
+      assert.ok(pingsAfterHeartbeat.length > 0, 'Pings should continue after heartbeat');
+    }
 
     await client.stop();
   });

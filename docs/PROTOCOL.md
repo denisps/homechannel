@@ -115,22 +115,15 @@ By signing both ECDH public keys, the server binds them together. The coordinato
 
 After registration, the `challengeAnswerHash` (expectedAnswer) becomes the shared secret for all future communication.
 
-### Keepalive Ping (AES-CTR Encrypted Payload)
+### Keepalive Ping (Optimized - No Payload)
 
 Sent every ~30 seconds:
 
 ```
-Binary: [0x01][0x04][Encrypted payload]
+Binary: [0x01][0x04]
 ```
 
-Encrypted JSON:
-```javascript
-{
-  type: 'ping'
-}
-```
-
-Encryption key: Derived from expectedAnswer (using SHA-256).
+**Optimization**: Ping messages contain no payload and require no encryption/decryption. The coordinator simply updates the server's timestamp upon receiving a ping from a known IP:port. This minimizes CPU usage and network overhead for frequent keepalive messages.
 
 ### Challenge Refresh (AES-CTR Encrypted Payload)
 
@@ -324,18 +317,20 @@ All UDP messages use binary protocol format to avoid fingerprinting:
 ```
 
 - **Version**: 0x01
-- **Types**: 0x01=register, 0x02=ping, 0x03=heartbeat, 0x04=answer
+- **Types**: 0x01=ECDH init, 0x02=ECDH response, 0x03=register, 0x04=ping, 0x05=heartbeat, 0x06=answer
 
 ### AES-CTR Encryption
 
-All UDP messages after registration use AES-256-CTR encryption:
+Most UDP messages after registration use AES-256-CTR encryption:
 
 - **Key**: Derived from expectedAnswer using SHA-256
 - **IV**: Random 16 bytes, prepended to ciphertext
 - **Format**: `[IV (16 bytes)][Ciphertext]`
 - **Payload**: JSON message (encrypted in binary format)
 
-Registration message payload remains unencrypted JSON (initial ECDH exchange).
+**Exceptions**:
+- **ECDH Init/Response**: Uses shared secret derived from ECDH
+- **Ping**: No payload, no encryption (optimized for minimal overhead)
 
 ## Signatures
 
