@@ -159,6 +159,20 @@ class MockCoordinator {
         expectedAnswer: data.payload.challengeAnswerHash,
         timestamp: Date.now()
       });
+
+      // Send acknowledgment (encrypted with shared secret)
+      const ackMessage = { status: 'ok', type: 'register' };
+      const encryptedAck = encryptAES(ackMessage, key);
+      const response = Buffer.concat([
+        Buffer.from([PROTOCOL_VERSION, MESSAGE_TYPES.REGISTER]),
+        encryptedAck
+      ]);
+      
+      this.socket.send(response, rinfo.port, rinfo.address, (err) => {
+        if (err) {
+          console.error('Error sending registration ack:', err);
+        }
+      });
     } catch (error) {
       console.error('Error handling register:', error.message);
     }
@@ -213,6 +227,38 @@ describe('Server UDP Module', () => {
     assert.ok(client.challenge);
     assert.ok(client.expectedAnswer);
     assert.ok(client.aesKey);
+
+    await client.stop();
+  });
+
+  test('UDPClient should handle registration acknowledgment', async () => {
+    const client = new UDPClient('127.0.0.1', coordinator.socket.address().port, serverKeys, {
+      coordinatorPublicKey: coordinator.coordinatorKeys.publicKey
+    });
+
+    let registeredCalled = false;
+    const registrationPromise = new Promise(resolve => {
+      client.on('registered', () => {
+        registeredCalled = true;
+        resolve();
+      });
+    });
+
+    await client.start();
+
+    // Wait for registration acknowledgment with timeout
+    await Promise.race([
+      registrationPromise,
+      new Promise(resolve => setTimeout(resolve, 2000))
+    ]);
+
+    // Verify registration state updated after receiving ack
+    assert.strictEqual(client.state, 'registered');
+    assert.strictEqual(client.registered, true);
+    assert.strictEqual(registeredCalled, true);
+    
+    // Verify keepalive started
+    assert.ok(client.keepaliveInterval);
 
     await client.stop();
   });

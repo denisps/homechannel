@@ -168,6 +168,9 @@ export class UDPClient {
         case MESSAGE_TYPES.ECDH_RESPONSE:
           this.handleECDHResponse(payload);
           break;
+        case MESSAGE_TYPES.REGISTER:
+          this.handleRegisterAck(payload);
+          break;
         case MESSAGE_TYPES.HEARTBEAT:
           this.handleHeartbeat(payload);
           break;
@@ -279,6 +282,24 @@ export class UDPClient {
           throw err;
         }
         console.log('Sent registration');
+      });
+    } catch (error) {
+      console.error('Error sending registration:', error.message);
+      this.state = 'disconnected';
+    }
+  }
+
+  /**
+   * Handle registration acknowledgment from coordinator
+   */
+  handleRegisterAck(payload) {
+    try {
+      // Decrypt with shared secret
+      const key = deriveAESKey(this.sharedSecret.toString('hex'));
+      const data = decryptAES(payload, key);
+
+      if (data.status === 'ok' && data.type === 'register') {
+        console.log('Registration acknowledged by coordinator');
         
         // Registration complete - start keepalive
         this.state = 'registered';
@@ -289,9 +310,12 @@ export class UDPClient {
         if (this.handlers.has('registered')) {
           this.handlers.get('registered')();
         }
-      });
+      } else {
+        console.error('Invalid registration acknowledgment');
+        this.state = 'disconnected';
+      }
     } catch (error) {
-      console.error('Error sending registration:', error.message);
+      console.error('Error handling registration ack:', error.message);
       this.state = 'disconnected';
     }
   }
