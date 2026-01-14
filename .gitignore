@@ -9,6 +9,7 @@ npm-debug.log*
 *.key
 *.pem
 !*.example.*
+**/keys/
 
 # Config
 config.json

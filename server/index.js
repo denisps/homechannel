@@ -114,8 +114,6 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   } catch (error) {
     console.error('Error loading config:', error);
     console.error('Make sure config.json exists in the server directory');
-  } catch (error) {
-    console.error('Error loading config:', error);
     process.exit(1);
   }
 
