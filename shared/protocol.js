@@ -248,10 +248,12 @@ export class UDPClient {
         this.coordinatorECDHPublicKey
       ]);
 
+      const timestamp = Date.now();
+
       const signatureData = {
         ecdhKeys: ecdhKeysData.toString('hex'),
         serverPublicKey: this.serverKeys.publicKey,
-        timestamp: Date.now(),
+        timestamp,
         payload: registrationPayload
       };
 
@@ -260,7 +262,7 @@ export class UDPClient {
       // Encrypt registration with shared secret
       const fullPayload = {
         serverPublicKey: this.serverKeys.publicKey,
-        timestamp: Date.now(),
+        timestamp,
         payload: registrationPayload,
         signature
       };
