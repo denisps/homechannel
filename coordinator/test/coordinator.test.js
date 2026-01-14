@@ -2,7 +2,7 @@ import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert';
 import dgram from 'dgram';
 import { ServerRegistry } from '../registry.js';
-import { UDPServer } from '../../shared/protocol.js';
+import { UDPServer, UDPClient } from '../../shared/protocol.js';
 import { PROTOCOL_VERSION, MESSAGE_TYPES } from '../../shared/protocol.js';
 import { 
   signData, 
@@ -556,9 +556,6 @@ describe('End-to-end Registration with Real UDPClient', () => {
   });
 
   test('should successfully register server with signature verification', async () => {
-    // Import UDPClient dynamically to avoid circular dependency issues
-    const { UDPClient } = await import('../../shared/protocol.js');
-    
     // Generate server keys
     const serverKeys = generateECDSAKeyPair();
     serverKeys.password = 'test-password';
@@ -568,20 +565,37 @@ describe('End-to-end Registration with Real UDPClient', () => {
       coordinatorPublicKey: coordinatorKeys.publicKey
     });
 
-    // Track registration event
-    let registeredEventFired = false;
-    client.on('registered', () => {
-      registeredEventFired = true;
+    // Track registration on both sides
+    let clientRegisteredEventFired = false;
+    const clientRegistrationPromise = new Promise((resolve) => {
+      client.on('registered', () => {
+        clientRegisteredEventFired = true;
+        resolve();
+      });
     });
 
-    // Start client and wait for registration
+    let coordinatorRegisteredEventFired = false;
+    const coordinatorRegistrationPromise = new Promise((resolve) => {
+      udpServer.on('register', () => {
+        coordinatorRegisteredEventFired = true;
+        resolve();
+      });
+    });
+
+    // Start client and wait for registration on both sides
     await client.start();
-    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    // Wait for both events with timeout
+    await Promise.race([
+      Promise.all([clientRegistrationPromise, coordinatorRegistrationPromise]),
+      new Promise(resolve => setTimeout(resolve, 2000))
+    ]);
 
     // Verify client thinks it's registered
     assert.strictEqual(client.registered, true, 'Client should be registered');
     assert.strictEqual(client.state, 'registered', 'Client state should be registered');
-    assert.strictEqual(registeredEventFired, true, 'Registered event should fire');
+    assert.strictEqual(clientRegisteredEventFired, true, 'Client registered event should fire');
+    assert.strictEqual(coordinatorRegisteredEventFired, true, 'Coordinator registered event should fire');
 
     // Verify coordinator actually registered the server (signature was valid)
     const server = registry.getServerByPublicKey(serverKeys.publicKey);
