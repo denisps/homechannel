@@ -1,7 +1,6 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert';
 import {
-  generateECDSAKeyPair,
   generateECDHKeyPair,
   computeECDHSecret,
   deriveAESKey,
@@ -16,6 +15,8 @@ import {
   generateChallenge,
   hashChallengeAnswer
 } from '../crypto.js';
+
+import { generateECDSAKeyPair } from '../keys.js';
 
 import {
   PROTOCOL_VERSION,

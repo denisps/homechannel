@@ -1,36 +1,10 @@
 import crypto from 'crypto';
-import fs from 'fs';
 
 /**
  * Shared crypto module for ECDSA, ECDH, and HMAC operations
  * Used by both coordinator and server
+ * Note: Key loading moved to keys.js to separate file I/O concerns
  */
-
-/**
- * Load ECDSA keys from files
- */
-export function loadKeys(privateKeyPath, publicKeyPath) {
-  const privateKey = fs.readFileSync(privateKeyPath, 'utf8');
-  const publicKey = fs.readFileSync(publicKeyPath, 'utf8');
-  return { privateKey, publicKey };
-}
-
-/**
- * Generate ECDSA key pair
- */
-export function generateECDSAKeyPair() {
-  return crypto.generateKeyPairSync('ec', {
-    namedCurve: 'prime256v1', // P-256
-    publicKeyEncoding: {
-      type: 'spki',
-      format: 'pem'
-    },
-    privateKeyEncoding: {
-      type: 'pkcs8',
-      format: 'pem'
-    }
-  });
-}
 
 /**
  * Sign data with ECDSA private key

@@ -3,7 +3,6 @@ import assert from 'node:assert';
 import dgram from 'dgram';
 import { UDPClient } from '../../shared/protocol.js';
 import { 
-  generateECDSAKeyPair, 
   generateECDHKeyPair,
   computeECDHSecret,
   deriveAESKey, 
@@ -13,6 +12,7 @@ import {
   encodeECDHResponse,
   signData
 } from '../../shared/crypto.js';
+import { generateECDSAKeyPair } from '../../shared/keys.js';
 import { PROTOCOL_VERSION, MESSAGE_TYPES } from '../../shared/protocol.js';
 
 /**

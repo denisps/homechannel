@@ -75,11 +75,12 @@ HomeChannel's three-component architecture enables direct peer-to-peer connectio
 - `/coordinator/index.js` - Main coordinator entry point
 - `/coordinator/https.js` - HTTPS server for clients
 - `/coordinator/udp.js` - UDP: ECDH initial, AES-CTR ongoing
-- `/coordinator/crypto.js` - ECDSA, AES-CTR, HMAC operations
 - `/coordinator/registry.js` - Memory-compact server registry
 - `/coordinator/relay.js` - Payload relay
 - `/coordinator/cleanup.js` - Periodic cleanup of expired servers
 - `/coordinator/ratelimit.js` - Connection attempt rate limiting
+- `/shared/crypto.js` - ECDSA, AES-CTR, HMAC operations (shared with server)
+- `/shared/keys.js` - Key loading and generation utilities
 
 ## Data Flow
 

@@ -1,7 +1,7 @@
 import fs from 'fs';
 import { UDPClient } from '../shared/protocol.js';
 import { WebRTCPeer } from './webrtc.js';
-import { loadKeys, generateECDSAKeyPair } from '../shared/crypto.js';
+import { loadKeys, generateECDSAKeyPair } from '../shared/keys.js';
 
 /**
  * HomeChannel Server

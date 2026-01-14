@@ -5,7 +5,6 @@ import { ServerRegistry } from '../registry.js';
 import { UDPServer } from '../../shared/protocol.js';
 import { PROTOCOL_VERSION, MESSAGE_TYPES } from '../../shared/protocol.js';
 import { 
-  generateECDSAKeyPair, 
   signData, 
   verifySignature, 
   createHMAC, 
@@ -21,6 +20,7 @@ import {
   encodeECDHInit,
   decodeECDHResponse
 } from '../../shared/crypto.js';
+import { generateECDSAKeyPair } from '../../shared/keys.js';
 
 /**
  * Mock server for testing (uses ECDH-based binary protocol)
