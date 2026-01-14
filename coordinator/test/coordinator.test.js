@@ -3,6 +3,18 @@ import assert from 'node:assert';
 import dgram from 'dgram';
 import { ServerRegistry } from '../registry.js';
 import { UDPServer, UDPClient } from '../../shared/protocol.js';
+
+/**
+ * Helper to add timeout to promises to prevent hanging tests
+ */
+function withTimeout(promise, timeoutMs = 3000, errorMsg = 'Operation timed out') {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => 
+      setTimeout(() => reject(new Error(errorMsg)), timeoutMs)
+    )
+  ]);
+}
 import { PROTOCOL_VERSION, MESSAGE_TYPES } from '../../shared/protocol.js';
 import { 
   signData, 
@@ -365,8 +377,12 @@ describe('Coordinator with Mock Server', () => {
 
     await mockServer.sendRegister(coordinatorPort, challenge, expectedAnswer);
 
-    // Wait for processing
-    await new Promise(resolve => setTimeout(resolve, 100));
+    // Wait for processing with timeout
+    await withTimeout(
+      new Promise(resolve => setTimeout(resolve, 100)),
+      500,
+      'Registration processing timed out'
+    );
 
     assert.strictEqual(registered, true);
 
@@ -381,7 +397,11 @@ describe('Coordinator with Mock Server', () => {
     const challenge = generateChallenge();
     const expectedAnswer = hashChallengeAnswer(challenge, 'password123');
     await mockServer.sendRegister(coordinatorPort, challenge, expectedAnswer);
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await withTimeout(
+      new Promise(resolve => setTimeout(resolve, 100)),
+      500,
+      'Registration processing timed out'
+    );
 
     const ipPort = registry.getServerByPublicKey(mockServer.serverPublicKey).ipPort;
     const timestampBefore = registry.getServerByPublicKey(mockServer.serverPublicKey).timestamp;
@@ -391,7 +411,11 @@ describe('Coordinator with Mock Server', () => {
 
     // Send encrypted ping
     await mockServer.sendPing(coordinatorPort, expectedAnswer);
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await withTimeout(
+      new Promise(resolve => setTimeout(resolve, 100)),
+      500,
+      'Ping processing timed out'
+    );
 
     const timestampAfter = registry.getServerByPublicKey(mockServer.serverPublicKey).timestamp;
     assert.ok(timestampAfter > timestampBefore, 'Timestamp should be updated after ping');
@@ -402,7 +426,11 @@ describe('Coordinator with Mock Server', () => {
     const challenge1 = generateChallenge();
     const expectedAnswer1 = hashChallengeAnswer(challenge1, 'password123');
     await mockServer.sendRegister(coordinatorPort, challenge1, expectedAnswer1);
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await withTimeout(
+      new Promise(resolve => setTimeout(resolve, 100)),
+      500,
+      'Registration processing timed out'
+    );
 
     // Send heartbeat with new challenge
     const challenge2 = generateChallenge();
@@ -414,7 +442,11 @@ describe('Coordinator with Mock Server', () => {
     });
 
     await mockServer.sendHeartbeat(coordinatorPort, expectedAnswer1, challenge2, expectedAnswer2);
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await withTimeout(
+      new Promise(resolve => setTimeout(resolve, 100)),
+      500,
+      'Heartbeat processing timed out'
+    );
 
     assert.strictEqual(heartbeatReceived, true);
 
@@ -428,7 +460,11 @@ describe('Coordinator with Mock Server', () => {
     const challenge = generateChallenge();
     const expectedAnswer = hashChallengeAnswer(challenge, 'password123');
     await mockServer.sendRegister(coordinatorPort, challenge, expectedAnswer);
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await withTimeout(
+      new Promise(resolve => setTimeout(resolve, 100)),
+      500,
+      'Registration processing timed out'
+    );
 
     const sessionId = 'session-123';
     const sdp = { type: 'answer', sdp: 'v=0...' };
@@ -443,7 +479,11 @@ describe('Coordinator with Mock Server', () => {
     });
 
     await mockServer.sendAnswer(coordinatorPort, expectedAnswer, sessionId, sdp, candidates);
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await withTimeout(
+      new Promise(resolve => setTimeout(resolve, 100)),
+      500,
+      'Answer processing timed out'
+    );
 
     assert.strictEqual(answerReceived, true);
     assert.strictEqual(receivedSessionId, sessionId);
@@ -460,7 +500,11 @@ describe('Coordinator with Mock Server', () => {
     const ecdhInitPayload = encodeECDHInit(ecdhKeys.publicKey);
     
     await testMockServer.sendBinary(ecdhInitPayload, coordinatorPort, MESSAGE_TYPES.ECDH_INIT);
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await withTimeout(
+      new Promise(resolve => setTimeout(resolve, 100)),
+      500,
+      'ECDH init processing timed out'
+    );
     
     // Get ECDH response and compute shared secret
     const ecdhResponse = testMockServer.getLastResponse();
@@ -491,7 +535,11 @@ describe('Coordinator with Mock Server', () => {
     const encryptedPayload = encryptAES(message, key);
 
     await testMockServer.sendBinary(encryptedPayload, coordinatorPort, MESSAGE_TYPES.REGISTER);
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await withTimeout(
+      new Promise(resolve => setTimeout(resolve, 100)),
+      500,
+      'Invalid registration processing timed out'
+    );
 
     // Server should not be registered
     const server = registry.getServerByPublicKey(testMockServer.serverPublicKey);
@@ -505,7 +553,11 @@ describe('Coordinator with Mock Server', () => {
     const challenge1 = generateChallenge();
     const expectedAnswer1 = hashChallengeAnswer(challenge1, 'password123');
     await mockServer.sendRegister(coordinatorPort, challenge1, expectedAnswer1);
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await withTimeout(
+      new Promise(resolve => setTimeout(resolve, 100)),
+      500,
+      'Registration processing timed out'
+    );
 
     const challenge2 = generateChallenge();
     const expectedAnswer2 = hashChallengeAnswer(challenge2, 'password123');
@@ -523,7 +575,11 @@ describe('Coordinator with Mock Server', () => {
     };
 
     await mockServer.send(message, coordinatorPort, MESSAGE_TYPES.HEARTBEAT, true, expectedAnswer1);
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await withTimeout(
+      new Promise(resolve => setTimeout(resolve, 100)),
+      500,
+      'Invalid heartbeat processing timed out'
+    );
 
     // Challenge should not be updated
     const server = registry.getServerByPublicKey(mockServer.serverPublicKey);
@@ -586,10 +642,11 @@ describe('End-to-end Registration with Real UDPClient', () => {
     await client.start();
     
     // Wait for both events with timeout
-    await Promise.race([
+    await withTimeout(
       Promise.all([clientRegistrationPromise, coordinatorRegistrationPromise]),
-      new Promise(resolve => setTimeout(resolve, 2000))
-    ]);
+      2000,
+      'End-to-end registration timed out'
+    );
 
     // Verify client thinks it's registered
     assert.strictEqual(client.registered, true, 'Client should be registered');

@@ -2,6 +2,18 @@ import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert';
 import dgram from 'dgram';
 import { UDPClient } from '../../shared/protocol.js';
+
+/**
+ * Helper to add timeout to promises to prevent hanging tests
+ */
+function withTimeout(promise, timeoutMs = 3000, errorMsg = 'Operation timed out') {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => 
+      setTimeout(() => reject(new Error(errorMsg)), timeoutMs)
+    )
+  ]);
+}
 import { 
   generateECDHKeyPair,
   computeECDHSecret,
@@ -216,11 +228,12 @@ describe('Server UDP Module', () => {
 
     await client.start();
 
-    // Wait for registration
-    await new Promise(resolve => {
-      client.on('registered', resolve);
-      setTimeout(resolve, 2000); // timeout after 2 seconds
-    });
+    // Wait for registration with timeout
+    await withTimeout(
+      new Promise(resolve => client.on('registered', resolve)),
+      2000,
+      'Registration timed out'
+    );
 
     assert.strictEqual(client.state, 'registered');
     assert.strictEqual(client.registered, true);
@@ -247,10 +260,11 @@ describe('Server UDP Module', () => {
     await client.start();
 
     // Wait for registration acknowledgment with timeout
-    await Promise.race([
+    await withTimeout(
       registrationPromise,
-      new Promise(resolve => setTimeout(resolve, 2000))
-    ]);
+      2000,
+      'Registration acknowledgment timed out'
+    );
 
     // Verify registration state updated after receiving ack
     assert.strictEqual(client.state, 'registered');
