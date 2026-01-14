@@ -84,16 +84,10 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   // Load config
   let config;
   try {
-    if (fs.existsSync('./config.json')) {
-      config = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
-    } else if (fs.existsSync('./config.example.json')) {
-      config = JSON.parse(fs.readFileSync('./config.example.json', 'utf8'));
-      console.log('Using example config (create config.json for production)');
-    } else {
-      throw new Error('No config file found');
-    }
+    config = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
   } catch (error) {
     console.error('Error loading config:', error);
+    console.error('Make sure config.json exists in the coordinator directory');
     process.exit(1);
   }
 

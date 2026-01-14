@@ -21,13 +21,7 @@ npm install
 
 ## Configuration
 
-Copy the example configuration:
-
-```bash
-cp config.example.json config.json
-```
-
-Edit `config.json` with your settings:
+Edit `config.json` in the coordinator directory:
 
 ```json
 {

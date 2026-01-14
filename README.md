@@ -41,7 +41,6 @@ cd homechannel
 
 # Set up coordinator (on public server)
 cd coordinator
-cp config.example.json config.json
 # Edit config.json with your settings
 npm test  # Verify installation
 npm start

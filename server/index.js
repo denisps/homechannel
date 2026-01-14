@@ -1,3 +1,4 @@
+import fs from 'fs';
 import { UDPClient } from '../shared/protocol.js';
 import { WebRTCPeer } from './webrtc.js';
 import { loadKeys, generateECDSAKeyPair, saveKeys } from '../shared/keys.js';
@@ -109,15 +110,10 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   // Load config
   let config;
   try {
-    if (fs.existsSync('./config.json')) {
-      config = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
-    } else if (fs.existsSync('./config.example.json')) {
-      config = JSON.parse(fs.readFileSync('./config.example.json', 'utf8'));
-      console.log('Using example config (create config.json for production)');
-    } else {
-      console.error('No config found');
-      process.exit(1);
-    }
+    config = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
+  } catch (error) {
+    console.error('Error loading config:', error);
+    console.error('Make sure config.json exists in the server directory');
   } catch (error) {
     console.error('Error loading config:', error);
     process.exit(1);

@@ -223,6 +223,19 @@ Coordinator sends ECDH public key plus AES-CTR encrypted `{timestamp, signature}
 
 ## Development Workflow
 
+When making changes to code:
+1. **Run tests first**: Ensure all tests pass before making changes
+2. **Make changes**: Implement the requested modifications
+3. **Run tests again**: Verify all tests still pass after changes
+4. **Update documentation**: Keep documentation in sync with code changes
+   - Update relevant README files if behavior changes
+   - Update PROTOCOL.md if protocol changes
+   - Update SECURITY.md if security model changes
+   - Update ARCHITECTURE.md if design changes
+5. **Make a commit**: Create a descriptive commit message
+6. **Push changes**: Push to the repository
+
+Best practices:
 - Test changes locally
 - No console.log in production code
 - Follow style guidelines
