@@ -8,6 +8,10 @@ import {
   decryptAES,
   signBinaryData,
   verifyBinarySignature,
+  encodeHello,
+  decodeHello,
+  encodeHelloAck,
+  decodeHelloAck,
   encodeECDHInit,
   encodeECDHResponse,
   decodeECDHInit,
@@ -87,11 +91,36 @@ describe('shared crypto utilities', () => {
 });
 
 describe('shared protocol helpers', () => {
-  test('encodes and decodes ECDH init payload', () => {
+  test('encodes and decodes HELLO payload', async () => {
+    const crypto = await import('crypto');
+    const serverTag = crypto.default.randomBytes(4);
+    const encoded = encodeHello(serverTag);
+    assert.ok(Buffer.isBuffer(encoded));
+    assert.strictEqual(encoded.length, 4);
+    const decoded = decodeHello(encoded);
+    assert.deepStrictEqual(decoded.serverTag, serverTag);
+  });
+
+  test('encodes and decodes HELLO_ACK payload', async () => {
+    const crypto = await import('crypto');
+    const serverTag = crypto.default.randomBytes(4);
+    const coordinatorTag = crypto.default.randomBytes(4);
+    const encoded = encodeHelloAck(serverTag, coordinatorTag);
+    assert.ok(Buffer.isBuffer(encoded));
+    assert.strictEqual(encoded.length, 8);
+    const decoded = decodeHelloAck(encoded);
+    assert.deepStrictEqual(decoded.serverTag, serverTag);
+    assert.deepStrictEqual(decoded.coordinatorTag, coordinatorTag);
+  });
+
+  test('encodes and decodes ECDH init payload', async () => {
+    const crypto = await import('crypto');
+    const coordinatorTag = crypto.default.randomBytes(4);
     const ecdh = generateECDHKeyPair();
-    const encoded = encodeECDHInit(ecdh.publicKey);
+    const encoded = encodeECDHInit(coordinatorTag, ecdh.publicKey);
     assert.ok(Buffer.isBuffer(encoded));
     const decoded = decodeECDHInit(encoded);
+    assert.deepStrictEqual(decoded.coordinatorTag, coordinatorTag);
     assert.deepStrictEqual(decoded.ecdhPublicKey, ecdh.publicKey);
   });
 

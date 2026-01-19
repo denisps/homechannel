@@ -9,6 +9,10 @@ import {
   verifySignature,
   signBinaryData,
   verifyBinarySignature,
+  encodeHello,
+  decodeHello,
+  encodeHelloAck,
+  decodeHelloAck,
   encodeECDHInit,
   decodeECDHInit,
   encodeECDHResponse,
@@ -21,21 +25,27 @@ import {
 export const PROTOCOL_VERSION = 0x01;
 
 export const MESSAGE_TYPES = Object.freeze({
-  ECDH_INIT: 0x01,      // Phase 1: Server sends ECDH public key
-  ECDH_RESPONSE: 0x02,  // Phase 2: Coordinator responds with ECDH public key
-  REGISTER: 0x03,       // Phase 3: Server sends encrypted registration
-  PING: 0x04,           // Keepalive
-  HEARTBEAT: 0x05,      // Challenge refresh
-  ANSWER: 0x06          // SDP answer
+  HELLO: 0x01,          // Phase 1: Server sends random tag (DoS prevention)
+  HELLO_ACK: 0x02,      // Phase 2: Coordinator responds with both tags
+  ECDH_INIT: 0x03,      // Phase 3: Server sends ECDH public key + coordinator tag
+  ECDH_RESPONSE: 0x04,  // Phase 4: Coordinator responds with ECDH public key
+  REGISTER: 0x05,       // Phase 5: Server sends encrypted registration
+  PING: 0x06,           // Keepalive
+  HEARTBEAT: 0x07,      // Challenge refresh
+  ANSWER: 0x08,         // SDP answer
+  ERROR: 0xFF           // Error response (rate limiting, etc.)
 });
 
 export const MESSAGE_TYPE_NAMES = Object.freeze({
+  [MESSAGE_TYPES.HELLO]: 'hello',
+  [MESSAGE_TYPES.HELLO_ACK]: 'hello_ack',
   [MESSAGE_TYPES.ECDH_INIT]: 'ecdh_init',
   [MESSAGE_TYPES.ECDH_RESPONSE]: 'ecdh_response',
   [MESSAGE_TYPES.REGISTER]: 'register',
   [MESSAGE_TYPES.PING]: 'ping',
   [MESSAGE_TYPES.HEARTBEAT]: 'heartbeat',
-  [MESSAGE_TYPES.ANSWER]: 'answer'
+  [MESSAGE_TYPES.ANSWER]: 'answer',
+  [MESSAGE_TYPES.ERROR]: 'error'
 });
 
 // Build binary UDP message: [version (1 byte)][type (1 byte)][payload]
@@ -128,28 +138,28 @@ export class UDPClient {
   }
 
   /**
-   * Initiate ECDH registration (Phase 1)
+   * Initiate registration with HELLO exchange (Phase 1)
    */
   async initiateRegistration() {
     try {
       this.state = 'registering';
       
-      // Generate ECDH key pair
-      const ecdhKeys = generateECDHKeyPair();
-      this.ecdhKeys = ecdhKeys;
+      // Generate random 4-byte tag
+      const crypto = await import('crypto');
+      this.serverTag = crypto.default.randomBytes(4);
       
-      // Encode ECDH init message
-      const payload = encodeECDHInit(ecdhKeys.publicKey);
+      // Encode HELLO message
+      const payload = encodeHello(this.serverTag);
       
-      // Send Phase 1: ECDH init
-      const message = buildUDPMessage(MESSAGE_TYPES.ECDH_INIT, payload);
+      // Send Phase 1: HELLO
+      const message = buildUDPMessage(MESSAGE_TYPES.HELLO, payload);
       
       this.socket.send(message, this.coordinatorPort, this.coordinatorHost, (err) => {
         if (err) {
-          console.error('Error sending ECDH init:', err);
+          console.error('Error sending HELLO:', err);
           throw err;
         }
-        console.log('Sent ECDH init');
+        console.log('Sent HELLO');
       });
     } catch (error) {
       this.state = 'disconnected';
@@ -168,6 +178,9 @@ export class UDPClient {
       console.log(`Received ${typeName} message`);
 
       switch (messageType) {
+        case MESSAGE_TYPES.HELLO_ACK:
+          this.handleHelloAck(payload);
+          break;
         case MESSAGE_TYPES.ECDH_RESPONSE:
           this.handleECDHResponse(payload);
           break;
@@ -176,6 +189,9 @@ export class UDPClient {
           break;
         case MESSAGE_TYPES.HEARTBEAT:
           this.handleHeartbeat(payload);
+          break;
+        case MESSAGE_TYPES.ERROR:
+          this.handleError(payload);
           break;
         default:
           console.warn(`Unexpected message type: 0x${messageType.toString(16)}`);
@@ -186,7 +202,62 @@ export class UDPClient {
   }
 
   /**
-   * Handle ECDH response (Phase 2)
+   * Handle HELLO_ACK (Phase 2)
+   */
+  async handleHelloAck(payload) {
+    try {
+      const decoded = decodeHelloAck(payload);
+      
+      // Verify server tag matches what we sent
+      if (!this.serverTag || !this.serverTag.equals(decoded.serverTag)) {
+        console.error('Server tag mismatch in HELLO_ACK');
+        this.state = 'disconnected';
+        return;
+      }
+      
+      // Store coordinator's tag for Phase 3
+      this.coordinatorTag = decoded.coordinatorTag;
+      
+      console.log('HELLO_ACK verified, proceeding to ECDH');
+      
+      // Now proceed to Phase 3: ECDH Init
+      await this.sendECDHInit();
+    } catch (error) {
+      console.error('Error handling HELLO_ACK:', error.message);
+      this.state = 'disconnected';
+    }
+  }
+
+  /**
+   * Send ECDH Init (Phase 3)
+   */
+  async sendECDHInit() {
+    try {
+      // Generate ECDH key pair
+      const ecdhKeys = generateECDHKeyPair();
+      this.ecdhKeys = ecdhKeys;
+      
+      // Encode ECDH init message with coordinator's tag
+      const payload = encodeECDHInit(this.coordinatorTag, ecdhKeys.publicKey);
+      
+      // Send Phase 3: ECDH init
+      const message = buildUDPMessage(MESSAGE_TYPES.ECDH_INIT, payload);
+      
+      this.socket.send(message, this.coordinatorPort, this.coordinatorHost, (err) => {
+        if (err) {
+          console.error('Error sending ECDH init:', err);
+          throw err;
+        }
+        console.log('Sent ECDH init');
+      });
+    } catch (error) {
+      console.error('Error sending ECDH init:', error.message);
+      this.state = 'disconnected';
+    }
+  }
+
+  /**
+   * Handle ECDH response (Phase 4)
    */
   async handleECDHResponse(payload) {
     try {
@@ -232,7 +303,7 @@ export class UDPClient {
   }
 
   /**
-   * Send registration (Phase 3)
+   * Send registration (Phase 5)
    */
   async sendRegistration() {
     try {
@@ -439,6 +510,24 @@ export class UDPClient {
   }
 
   /**
+   * Handle ERROR message from coordinator
+   */
+  handleError(payload) {
+    // ERROR has no payload (rate limiting/ban notification)
+    console.error('Received ERROR from coordinator - likely rate limited or banned');
+    this.state = 'disconnected';
+    this.registered = false;
+    
+    // Stop keepalive and heartbeat
+    if (this.keepaliveInterval) {
+      clearInterval(this.keepaliveInterval);
+    }
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+    }
+  }
+
+  /**
    * Send SDP answer
    */
   async sendAnswer(sdpAnswer) {
@@ -508,19 +597,46 @@ export class UDPServer {
     this.socket = null;
     this.messageHandlers = new Map();
     
+    // HELLO session state for DoS prevention
+    // Map: ipPort → { serverTag, coordinatorTag, timestamp }
+    this.helloSessions = new Map();
+    
     // ECDH session state for pending registrations
     // Map: ipPort → { ecdhKeys, serverECDSAPublicKey, serverECDHPublicKey, timestamp }
     this.ecdhSessions = new Map();
     
-    // Cleanup old ECDH sessions every 5 minutes
-    this.ecdhCleanupInterval = setInterval(() => {
+    // Rate limiting: track HELLO attempts
+    this.helloAttempts = new Map(); // ipPort → [timestamps]
+    this.maxHelloPerMinute = options.maxHelloPerMinute || 10;
+    
+    // Cleanup old sessions every 5 minutes
+    this.cleanupInterval = setInterval(() => {
       const now = Date.now();
+      
+      // Cleanup HELLO sessions (timeout: 30 seconds)
+      for (const [ipPort, session] of this.helloSessions.entries()) {
+        if (now - session.timestamp > 30000) {
+          this.helloSessions.delete(ipPort);
+        }
+      }
+      
+      // Cleanup ECDH sessions (timeout: 5 minutes)
       for (const [ipPort, session] of this.ecdhSessions.entries()) {
-        if (now - session.timestamp > 300000) { // 5 minutes
+        if (now - session.timestamp > 300000) {
           this.ecdhSessions.delete(ipPort);
         }
       }
-    }, 300000);
+      
+      // Cleanup old rate limit data (keep last 1 minute)
+      for (const [ipPort, timestamps] of this.helloAttempts.entries()) {
+        const recent = timestamps.filter(t => now - t < 60000);
+        if (recent.length === 0) {
+          this.helloAttempts.delete(ipPort);
+        } else {
+          this.helloAttempts.set(ipPort, recent);
+        }
+      }
+    }, 60000); // Every minute
   }
 
   /**
@@ -561,6 +677,9 @@ export class UDPServer {
 
       // Route message based on type
       switch (messageType) {
+        case MESSAGE_TYPES.HELLO:
+          this.handleHello(payload, ipPort, rinfo);
+          break;
         case MESSAGE_TYPES.ECDH_INIT:
           this.handleECDHInit(payload, ipPort, rinfo);
           break;
@@ -585,11 +704,83 @@ export class UDPServer {
   }
 
   /**
-   * Handle ECDH init (Phase 1)
+   * Handle HELLO (Phase 1) - DoS prevention
+   */
+  async handleHello(payload, ipPort, rinfo) {
+    try {
+      // Check rate limiting
+      const now = Date.now();
+      const attempts = this.helloAttempts.get(ipPort) || [];
+      const recentAttempts = attempts.filter(t => now - t < 60000);
+      
+      if (recentAttempts.length >= this.maxHelloPerMinute) {
+        console.warn(`Rate limit exceeded for ${ipPort}`);
+        // Send ERROR message
+        const errorMessage = buildUDPMessage(MESSAGE_TYPES.ERROR, Buffer.alloc(0));
+        this.socket.send(errorMessage, rinfo.port, rinfo.address);
+        return;
+      }
+      
+      // Log attempt
+      recentAttempts.push(now);
+      this.helloAttempts.set(ipPort, recentAttempts);
+      
+      // Decode HELLO
+      const decoded = decodeHello(payload);
+      
+      // Generate coordinator's random tag
+      const crypto = await import('crypto');
+      const coordinatorTag = crypto.default.randomBytes(4);
+      
+      // Store session
+      this.helloSessions.set(ipPort, {
+        serverTag: decoded.serverTag,
+        coordinatorTag,
+        timestamp: now
+      });
+      
+      // Send HELLO_ACK (Phase 2)
+      const responsePayload = encodeHelloAck(decoded.serverTag, coordinatorTag);
+      const message = buildUDPMessage(MESSAGE_TYPES.HELLO_ACK, responsePayload);
+      
+      this.socket.send(message, rinfo.port, rinfo.address, (err) => {
+        if (err) {
+          console.error('Error sending HELLO_ACK:', err);
+        }
+      });
+      
+      // Emit event for testing
+      if (this.messageHandlers.has('hello')) {
+        this.messageHandlers.get('hello')(decoded, ipPort);
+      }
+    } catch (error) {
+      console.error('Error handling HELLO:', error.message);
+    }
+  }
+
+  /**
+   * Handle ECDH init (Phase 3) - Now requires valid coordinator tag
    */
   handleECDHInit(payload, ipPort, rinfo) {
     try {
       const decoded = decodeECDHInit(payload);
+      
+      // Verify coordinator tag before expensive ECDH operation
+      const helloSession = this.helloSessions.get(ipPort);
+      if (!helloSession) {
+        console.error('No HELLO session for ECDH init');
+        return;
+      }
+      
+      if (!helloSession.coordinatorTag.equals(decoded.coordinatorTag)) {
+        console.error('Invalid coordinator tag in ECDH init');
+        this.helloSessions.delete(ipPort);
+        return;
+      }
+      
+      // Tag verified - proceed with ECDH (expensive operation)
+      // Clean up HELLO session
+      this.helloSessions.delete(ipPort);
       
       // Generate coordinator's ECDH key pair
       const ecdhKeys = generateECDHKeyPair();
@@ -641,7 +832,7 @@ export class UDPServer {
   }
 
   /**
-   * Handle server registration (Phase 3)
+   * Handle server registration (Phase 5)
    */
   handleRegister(payload, ipPort, rinfo) {
     try {
@@ -854,9 +1045,9 @@ export class UDPServer {
    * Stop UDP server
    */
   stop() {
-    // Clear ECDH cleanup interval
-    if (this.ecdhCleanupInterval) {
-      clearInterval(this.ecdhCleanupInterval);
+    // Clear cleanup interval
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
     }
     
     return new Promise((resolve) => {

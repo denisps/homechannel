@@ -21,7 +21,12 @@ import {
   encryptAES,
   decryptAES,
   signBinaryData,
+  encodeHello,
+  encodeHelloAck,
+  decodeHello,
+  encodeECDHInit,
   encodeECDHResponse,
+  decodeECDHInit,
   signData
 } from '../../shared/crypto.js';
 import { generateECDSAKeyPair } from '../../shared/keys.js';
@@ -35,6 +40,7 @@ class MockCoordinator {
     this.socket = null;
     this.port = port;
     this.ecdhSessions = new Map();
+    this.helloSessions = new Map(); // Track HELLO sessions
     this.coordinatorKeys = generateECDSAKeyPair();
     this.registeredServers = new Map();
   }
@@ -78,7 +84,11 @@ class MockCoordinator {
       }
 
       switch (messageType) {
-        case MESSAGE_TYPES.ECDH_INIT:
+        case MESSAGE_TYPES.HELLO:
+          this.handleHello(payload, ipPort, rinfo);
+          break;        case MESSAGE_TYPES.HELLO:
+          this.handleHello(payload, ipPort, rinfo);
+          break;        case MESSAGE_TYPES.ECDH_INIT:
           this.handleECDHInit(payload, ipPort, rinfo);
           break;
         case MESSAGE_TYPES.REGISTER:
@@ -101,11 +111,55 @@ class MockCoordinator {
     }
   }
 
+  async handleHello(payload, ipPort, rinfo) {
+    try {
+      const decoded = decodeHello(payload);
+      
+      // Generate coordinator's random tag
+      const crypto = await import('crypto');
+      const coordinatorTag = crypto.default.randomBytes(4);
+      
+      // Store session
+      this.helloSessions.set(ipPort, {
+        serverTag: decoded.serverTag,
+        coordinatorTag,
+        timestamp: Date.now()
+      });
+      
+      // Send HELLO_ACK
+      const responsePayload = encodeHelloAck(decoded.serverTag, coordinatorTag);
+      const message = Buffer.concat([
+        Buffer.from([PROTOCOL_VERSION, MESSAGE_TYPES.HELLO_ACK]),
+        responsePayload
+      ]);
+      
+      this.socket.send(message, rinfo.port, rinfo.address);
+    } catch (error) {
+      console.error('Error handling HELLO:', error.message);
+    }
+  }
+
   handleECDHInit(payload, ipPort, rinfo) {
     try {
+      // Verify coordinator tag before expensive ECDH
+      const decoded = decodeECDHInit(payload);
+      
+      const helloSession = this.helloSessions.get(ipPort);
+      if (!helloSession) {
+        console.error('No HELLO session for ECDH init');
+        return;
+      }
+      
+      if (!helloSession.coordinatorTag.equals(decoded.coordinatorTag)) {
+        console.error('Invalid coordinator tag in ECDH init');
+        return;
+      }
+      
+      // Clean up HELLO session
+      this.helloSessions.delete(ipPort);
+      
       // Parse ECDH init
-      const ecdhPubKeyLen = payload.readUInt8(0);
-      const serverECDHPublicKey = payload.slice(1, 1 + ecdhPubKeyLen);
+      const serverECDHPublicKey = decoded.ecdhPublicKey;
 
       // Generate coordinator ECDH keys
       const ecdhKeys = generateECDHKeyPair();
@@ -315,7 +369,7 @@ describe('Server UDP Module', () => {
 
     let pingsReceived = 0;
     coordinator.socket.on('message', (msg) => {
-      if (msg.length >= 2 && msg[1] === 0x04) { // PING message type
+      if (msg.length >= 2 && msg[1] === 0x06) { // PING message type (updated from 0x04)
         pingsReceived++;
       }
     });

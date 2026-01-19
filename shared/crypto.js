@@ -176,18 +176,76 @@ export function verifyBinarySignature(data, signature, publicKey) {
 }
 
 /**
- * Encode ECDH init message (Phase 1: Server → Coordinator)
- * Format: [ecdhPubKeyLen(1)][ecdhPubKey]
- * No ECDSA public key or signature - server identity revealed only after encryption
+ * Encode HELLO message (Phase 1: Server → Coordinator)
+ * Format: [serverTag(4)]
+ * 4-byte random tag to prevent DoS
  */
-export function encodeECDHInit(ecdhPublicKey) {
+export function encodeHello(serverTag) {
+  if (!Buffer.isBuffer(serverTag) || serverTag.length !== 4) {
+    throw new Error('Server tag must be a 4-byte Buffer');
+  }
+  return serverTag;
+}
+
+/**
+ * Decode HELLO message
+ * Returns: { serverTag: Buffer }
+ */
+export function decodeHello(buffer) {
+  if (buffer.length !== 4) {
+    throw new Error('HELLO message must be exactly 4 bytes');
+  }
+  return {
+    serverTag: buffer
+  };
+}
+
+/**
+ * Encode HELLO_ACK message (Phase 2: Coordinator → Server)
+ * Format: [serverTag(4)][coordinatorTag(4)]
+ * Coordinator echoes server's tag and sends its own
+ */
+export function encodeHelloAck(serverTag, coordinatorTag) {
+  if (!Buffer.isBuffer(serverTag) || serverTag.length !== 4) {
+    throw new Error('Server tag must be a 4-byte Buffer');
+  }
+  if (!Buffer.isBuffer(coordinatorTag) || coordinatorTag.length !== 4) {
+    throw new Error('Coordinator tag must be a 4-byte Buffer');
+  }
+  return Buffer.concat([serverTag, coordinatorTag]);
+}
+
+/**
+ * Decode HELLO_ACK message
+ * Returns: { serverTag: Buffer, coordinatorTag: Buffer }
+ */
+export function decodeHelloAck(buffer) {
+  if (buffer.length !== 8) {
+    throw new Error('HELLO_ACK message must be exactly 8 bytes');
+  }
+  return {
+    serverTag: buffer.slice(0, 4),
+    coordinatorTag: buffer.slice(4, 8)
+  };
+}
+
+/**
+ * Encode ECDH init message (Phase 3: Server → Coordinator)
+ * Format: [coordinatorTag(4)][ecdhPubKeyLen(1)][ecdhPubKey]
+ * Now includes coordinator's tag for verification before expensive ECDH
+ */
+export function encodeECDHInit(coordinatorTag, ecdhPublicKey) {
+  if (!Buffer.isBuffer(coordinatorTag) || coordinatorTag.length !== 4) {
+    throw new Error('Coordinator tag must be a 4-byte Buffer');
+  }
   const ecdhPubKeyBuffer = ecdhPublicKey; // Already a Buffer
   
   // Validate length fits in 1 byte (0-255)
   if (ecdhPubKeyBuffer.length > 255) throw new Error('ECDH public key too long');
   
-  // Concatenate: length prefix + ECDH public key
+  // Concatenate: coordinator tag + length prefix + ECDH public key
   return Buffer.concat([
+    coordinatorTag,
     Buffer.from([ecdhPubKeyBuffer.length]),
     ecdhPubKeyBuffer
   ]);
@@ -195,10 +253,18 @@ export function encodeECDHInit(ecdhPublicKey) {
 
 /**
  * Decode ECDH init message
- * Format: [ecdhPubKeyLen(1)][ecdhPubKey]
+ * Format: [coordinatorTag(4)][ecdhPubKeyLen(1)][ecdhPubKey]
  */
 export function decodeECDHInit(buffer) {
+  if (buffer.length < 5) {
+    throw new Error('ECDH init message too short');
+  }
+  
   let offset = 0;
+  
+  // Read coordinator tag
+  const coordinatorTag = buffer.slice(offset, offset + 4);
+  offset += 4;
   
   // Read ECDH public key
   const ecdhPubKeyLen = buffer.readUInt8(offset);
@@ -206,12 +272,13 @@ export function decodeECDHInit(buffer) {
   const ecdhPublicKey = buffer.slice(offset, offset + ecdhPubKeyLen);
   
   return {
+    coordinatorTag,
     ecdhPublicKey
   };
 }
 
 /**
- * Encode ECDH response message (Phase 2: Coordinator → Server)
+ * Encode ECDH response message (Phase 4: Coordinator → Server)
  * Format: [ecdhPubKeyLen(1)][ecdhPubKey][encryptedData]
  * encryptedData contains AES-GCM encrypted {timestamp, signature}
  */

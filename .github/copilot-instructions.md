@@ -104,18 +104,33 @@ function decryptAES(encryptedBuffer, key) {
 **Version**: `0x01`
 
 **Message Types**:
-- `0x01` - ECDH Init (Phase 1 of registration)
-- `0x02` - ECDH Response (Phase 2 of registration)
-- `0x03` - Registration (Phase 3, AES-GCM encrypted)
-- `0x04` - Ping (AES-GCM encrypted)
-- `0x05` - Heartbeat (AES-GCM encrypted)
-- `0x06` - Answer (AES-GCM encrypted)
+- `0x01` - HELLO (Phase 1: DoS prevention, 4-byte tag)
+- `0x02` - HELLO_ACK (Phase 2: Echo + coordinator tag)
+- `0x03` - ECDH Init (Phase 3: With coordinator tag verification)
+- `0x04` - ECDH Response (Phase 4: Coordinator's ECDH key)
+- `0x05` - Registration (Phase 5: AES-GCM encrypted)
+- `0x06` - Ping (Keepalive, no payload)
+- `0x07` - Heartbeat (AES-GCM encrypted)
+- `0x08` - Answer (AES-GCM encrypted)
+- `0xFF` - ERROR (Rate limiting/ban notification)
 
-**ECDH Init** (binary payload, NO signatures or identities):
+**HELLO** (binary payload, DoS prevention):
 ```
-Format: [ecdhPubKeyLen(1)][ecdhPubKey]
+Format: [serverTag(4)]
 ```
-Server sends only ECDH public key. No server identity revealed.
+Server sends 4-byte random tag. No expensive operations. Rate-limited per IP.
+
+**HELLO_ACK** (binary payload):
+```
+Format: [serverTag(4)][coordinatorTag(4)]
+```
+Coordinator echoes server's tag and sends its own 4-byte random tag.
+
+**ECDH Init** (binary payload with tag verification):
+```
+Format: [coordinatorTag(4)][ecdhPubKeyLen(1)][ecdhPubKey]
+```
+Server includes coordinator's tag. Coordinator verifies tag before expensive ECDH operation.
 
 **ECDH Response** (binary payload with encrypted signature):
 ```

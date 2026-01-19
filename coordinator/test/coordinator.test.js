@@ -28,6 +28,10 @@ import {
   computeECDHSecret,
   signBinaryData,
   verifyBinarySignature,
+  encodeHello,
+  decodeHello,
+  encodeHelloAck,
+  decodeHelloAck,
   encodeECDHInit,
   decodeECDHResponse
 } from '../../shared/crypto.js';
@@ -62,11 +66,44 @@ class MockServer {
   }
 
   async sendRegister(coordinatorPort, challenge, expectedAnswer) {
-    // Phase 1: Send ECDH init (only ECDH public key, no signature)
+    // Phase 1: Send HELLO with random tag
+    const crypto = await import('crypto');
+    this.serverTag = crypto.default.randomBytes(4);
+    
+    const helloPayload = encodeHello(this.serverTag);
+    await this.sendBinary(helloPayload, coordinatorPort, MESSAGE_TYPES.HELLO);
+    
+    // Wait for HELLO_ACK
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
+    const helloAckResponse = this.getLastResponse();
+    if (!helloAckResponse || helloAckResponse.length < 2) {
+      throw new Error('No HELLO_ACK response received');
+    }
+    
+    // Parse HELLO_ACK
+    let version = helloAckResponse[0];
+    let messageType = helloAckResponse[1];
+    let payload = helloAckResponse.slice(2);
+    
+    if (version !== PROTOCOL_VERSION || messageType !== MESSAGE_TYPES.HELLO_ACK) {
+      throw new Error('Invalid HELLO_ACK response');
+    }
+    
+    const helloAckDecoded = decodeHelloAck(payload);
+    
+    // Verify server tag
+    if (!this.serverTag.equals(helloAckDecoded.serverTag)) {
+      throw new Error('Server tag mismatch in HELLO_ACK');
+    }
+    
+    this.coordinatorTag = helloAckDecoded.coordinatorTag;
+    
+    // Phase 3: Send ECDH init (with coordinator's tag + ECDH public key)
     const ecdhKeys = generateECDHKeyPair();
     this.ecdhKeys = ecdhKeys;
     
-    const ecdhInitPayload = encodeECDHInit(ecdhKeys.publicKey);
+    const ecdhInitPayload = encodeECDHInit(this.coordinatorTag, ecdhKeys.publicKey);
     
     await this.sendBinary(ecdhInitPayload, coordinatorPort, MESSAGE_TYPES.ECDH_INIT);
     
@@ -79,9 +116,9 @@ class MockServer {
     }
     
     // Parse ECDH response
-    const version = ecdhResponse[0];
-    const messageType = ecdhResponse[1];
-    const payload = ecdhResponse.slice(2);
+    version = ecdhResponse[0];
+    messageType = ecdhResponse[1];
+    payload = ecdhResponse.slice(2);
     
     if (version !== PROTOCOL_VERSION || messageType !== MESSAGE_TYPES.ECDH_RESPONSE) {
       throw new Error('Invalid ECDH response');
@@ -492,10 +529,29 @@ describe('Coordinator with Mock Server', () => {
     const testMockServer = new MockServer(coordinatorKeys.publicKey);
     await testMockServer.start();
 
-    // Phase 1: Send ECDH init (only ECDH public key, no signature)
+    // Phase 1: Send HELLO
+    const crypto = await import('crypto');
+    const serverTag = crypto.default.randomBytes(4);
+    
+    const helloPayload = encodeHello(serverTag);
+    await testMockServer.sendBinary(helloPayload, coordinatorPort, MESSAGE_TYPES.HELLO);
+    await withTimeout(
+      new Promise(resolve => setTimeout(resolve, 100)),
+      500,
+      'HELLO processing timed out'
+    );
+    
+    // Get HELLO_ACK and extract coordinator tag
+    const helloAckResponse = testMockServer.getLastResponse();
+    const helloAckDecoded = decodeHelloAck(helloAckResponse.slice(2));
+    const coordinatorTag = helloAckDecoded.coordinatorTag;
+    
+    testMockServer.clearResponses();
+    
+    // Phase 3: Send ECDH init (with coordinator tag + ECDH public key)
     const ecdhKeys = generateECDHKeyPair();
     
-    const ecdhInitPayload = encodeECDHInit(ecdhKeys.publicKey);
+    const ecdhInitPayload = encodeECDHInit(coordinatorTag, ecdhKeys.publicKey);
     
     await testMockServer.sendBinary(ecdhInitPayload, coordinatorPort, MESSAGE_TYPES.ECDH_INIT);
     await withTimeout(

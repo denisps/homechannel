@@ -78,12 +78,12 @@ Server uses its own ECDH public key (which it already knows) and the coordinator
 
 **Security**: Coordinator proves its identity and binds both ECDH keys together. Observer cannot impersonate coordinator, perform MITM attack, or see the signature. No redundant transmission of keys.
 
-#### Phase 3: Registration (Server → Coordinator)
+#### Phase 5: Registration (Server → Coordinator)
 
 Server sends encrypted registration data using AES-GCM with key derived from ECDH shared secret:
 
 ```
-Binary: [0x01][0x03][AES-GCM Encrypted Payload]
+Binary: [0x01][0x05][AES-GCM Encrypted Payload]
 ```
 
 Encrypted JSON payload:
@@ -120,7 +120,7 @@ After registration, the `challengeAnswerHash` (expectedAnswer) becomes the share
 Sent every ~30 seconds:
 
 ```
-Binary: [0x01][0x04]
+Binary: [0x01][0x06]
 ```
 
 **Optimization**: Ping messages contain no payload and require no encryption/decryption. The coordinator simply updates the server's timestamp upon receiving a ping from a known IP:port. This minimizes CPU usage and network overhead for frequent keepalive messages.
@@ -130,7 +130,7 @@ Binary: [0x01][0x04]
 Sent every ~10 minutes. AES-GCM provides both encryption and authentication:
 
 ```
-Binary: [0x01][0x05][Encrypted payload]
+Binary: [0x01][0x07][Encrypted payload]
 ```
 
 Encrypted JSON:
@@ -151,7 +151,7 @@ Encrypted JSON:
 Response to client offer:
 
 ```
-Binary: [0x01][0x06][Encrypted payload]
+Binary: [0x01][0x08][Encrypted payload]
 ```
 
 Encrypted JSON:
@@ -171,6 +171,16 @@ Encrypted JSON:
   signature: 'hex-encoded-ecdsa-signature'
 }
 ```
+
+### ERROR (No Payload)
+
+Sent by coordinator when client is rate-limited or banned:
+
+```
+Binary: [0x01][0xFF]
+```
+
+**Purpose**: Notifies client of rate limiting or temporary ban. Client should back off and retry later. No payload needed - message type alone conveys the error.
 
 ## HTTPS Protocol (Client ↔ Coordinator)
 
