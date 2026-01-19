@@ -169,7 +169,7 @@
   
   <!-- Step 6: Coordinator verifies and relays -->
   <g id="client-step6">
-    <text x="20" y="1290" font-weight="bold" fill="#f57c00">6. Verify & Relay</text>
+    <text x="20" y="1290" font-weight="bold" fill="#f57c00">6. Verify &amp; Relay</text>
     <rect x="530" y="1300" width="140" height="50" fill="#fff3e0" stroke="#f57c00" stroke-width="1" rx="3"/>
     <text x="600" y="1320" text-anchor="middle" font-size="12">Verify challenge answer</text>
     <text x="600" y="1335" text-anchor="middle" font-size="12">Match: expectedAnswer</text>
@@ -183,7 +183,7 @@
     <text x="20" y="1410" font-weight="bold" fill="#388e3c">7. Server Response</text>
     <rect x="1000" y="1420" width="180" height="40" fill="#e8f5e9" stroke="#388e3c" stroke-width="1" rx="3"/>
     <text x="1090" y="1440" text-anchor="middle" font-size="12">Generate SDP answer</text>
-    <text x="1090" y="1455" text-anchor="middle" font-size="12">& ICE candidates</text>
+    <text x="1090" y="1455" text-anchor="middle" font-size="12">&amp; ICE candidates</text>
     
     <line x1="1090" y1="1475" x2="600" y2="1475" stroke="#388e3c" stroke-width="2" marker-end="url(#arrowhead-green)"/>
     <text x="730" y="1470" fill="#388e3c">ANSWER (encrypted: SDP, candidates, signature)</text>
