@@ -105,26 +105,26 @@ function decryptAES(encryptedBuffer, key) {
 
 **Message Types**:
 - `0x01` - HELLO (Phase 1: DoS prevention, 4-byte tag)
-- `0x02` - HELLO_ACK (Phase 2: Echo + coordinator tag)
+- `0x02` - HELLO_ACK (Phase 2: Echo + coordinator tag, rate-limited)
 - `0x03` - ECDH Init (Phase 3: With coordinator tag verification)
 - `0x04` - ECDH Response (Phase 4: Coordinator's ECDH key)
 - `0x05` - Registration (Phase 5: AES-GCM encrypted)
 - `0x06` - Ping (Keepalive, no payload)
 - `0x07` - Heartbeat (AES-GCM encrypted)
 - `0x08` - Answer (AES-GCM encrypted)
-- `0xFF` - ERROR (Rate limiting/ban notification)
+- `0xFF` - ERROR (Rate limiting/ban notification, not sent for HELLO)
 
 **HELLO** (binary payload, DoS prevention):
 ```
 Format: [serverTag(4)]
 ```
-Server sends 4-byte random tag. No expensive operations. Rate-limited per IP.
+Server sends 4-byte random tag. No expensive operations. **Source IP:port cannot be trusted at this stage** - only used for reply routing.
 
-**HELLO_ACK** (binary payload):
+**HELLO_ACK** (binary payload, rate-limited):
 ```
 Format: [serverTag(4)][coordinatorTag(4)]
 ```
-Coordinator echoes server's tag and sends its own 4-byte random tag.
+Coordinator echoes server's tag and sends its own 4-byte random tag. **Rate-limiting applies to replies sent**, not incoming HELLOs. No ERROR responses sent to HELLOs (prevents amplification attacks). Coordinator does not store server's tag (server will echo it back).
 
 **ECDH Init** (binary payload with tag verification):
 ```

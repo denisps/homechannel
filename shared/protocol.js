@@ -26,14 +26,14 @@ export const PROTOCOL_VERSION = 0x01;
 
 export const MESSAGE_TYPES = Object.freeze({
   HELLO: 0x01,          // Phase 1: Server sends random tag (DoS prevention)
-  HELLO_ACK: 0x02,      // Phase 2: Coordinator responds with both tags
+  HELLO_ACK: 0x02,      // Phase 2: Coordinator responds with tag (rate-limited)
   ECDH_INIT: 0x03,      // Phase 3: Server sends ECDH public key + coordinator tag
   ECDH_RESPONSE: 0x04,  // Phase 4: Coordinator responds with ECDH public key
   REGISTER: 0x05,       // Phase 5: Server sends encrypted registration
   PING: 0x06,           // Keepalive
   HEARTBEAT: 0x07,      // Challenge refresh
   ANSWER: 0x08,         // SDP answer
-  ERROR: 0xFF           // Error response (rate limiting, etc.)
+  ERROR: 0xFF           // Error response (not sent for HELLO messages)
 });
 
 export const MESSAGE_TYPE_NAMES = Object.freeze({
@@ -598,15 +598,17 @@ export class UDPServer {
     this.messageHandlers = new Map();
     
     // HELLO session state for DoS prevention
-    // Map: ipPort → { serverTag, coordinatorTag, timestamp }
+    // Map: ipPort → { coordinatorTag, timestamp }
+    // Note: ipPort cannot be trusted at this stage, only used for reply routing
     this.helloSessions = new Map();
     
     // ECDH session state for pending registrations
     // Map: ipPort → { ecdhKeys, serverECDSAPublicKey, serverECDHPublicKey, timestamp }
     this.ecdhSessions = new Map();
     
-    // Rate limiting: track HELLO attempts
-    this.helloAttempts = new Map(); // ipPort → [timestamps]
+    // Rate limiting: track HELLO_ACK replies sent (not incoming HELLOs)
+    // Source IP cannot be trusted at HELLO stage, only limit our replies
+    this.helloAttempts = new Map(); // ipPort → [timestamps of replies sent]
     this.maxHelloPerMinute = options.maxHelloPerMinute || 10;
     
     // Cleanup old sessions every 5 minutes
@@ -628,6 +630,7 @@ export class UDPServer {
       }
       
       // Cleanup old rate limit data (keep last 1 minute)
+      // Note: This tracks REPLIES sent, not incoming HELLOs
       for (const [ipPort, timestamps] of this.helloAttempts.entries()) {
         const recent = timestamps.filter(t => now - t < 60000);
         if (recent.length === 0) {
@@ -705,25 +708,24 @@ export class UDPServer {
 
   /**
    * Handle HELLO (Phase 1) - DoS prevention
+   * 
+   * IMPORTANT: Source IP:port cannot be trusted at this stage.
+   * Rate-limiting is based on REPLIES sent, not incoming HELLOs.
+   * No ERROR responses are sent to avoid amplification attacks.
    */
   async handleHello(payload, ipPort, rinfo) {
     try {
-      // Check rate limiting
       const now = Date.now();
+      
+      // Check rate limit on REPLIES (not incoming HELLOs)
       const attempts = this.helloAttempts.get(ipPort) || [];
       const recentAttempts = attempts.filter(t => now - t < 60000);
       
       if (recentAttempts.length >= this.maxHelloPerMinute) {
-        console.warn(`Rate limit exceeded for ${ipPort}`);
-        // Send ERROR message
-        const errorMessage = buildUDPMessage(MESSAGE_TYPES.ERROR, Buffer.alloc(0));
-        this.socket.send(errorMessage, rinfo.port, rinfo.address);
+        console.warn(`Rate limit exceeded for replies to ${ipPort} - silently dropping`);
+        // Silently drop - do not send ERROR (prevents amplification)
         return;
       }
-      
-      // Log attempt
-      recentAttempts.push(now);
-      this.helloAttempts.set(ipPort, recentAttempts);
       
       // Decode HELLO
       const decoded = decodeHello(payload);
@@ -732,9 +734,9 @@ export class UDPServer {
       const crypto = await import('crypto');
       const coordinatorTag = crypto.default.randomBytes(4);
       
-      // Store session
+      // Store session (only coordinator's tag, not server's)
+      // Server will echo its own tag back, no need to store it
       this.helloSessions.set(ipPort, {
-        serverTag: decoded.serverTag,
         coordinatorTag,
         timestamp: now
       });
@@ -746,6 +748,10 @@ export class UDPServer {
       this.socket.send(message, rinfo.port, rinfo.address, (err) => {
         if (err) {
           console.error('Error sending HELLO_ACK:', err);
+        } else {
+          // Log reply attempt for rate limiting
+          recentAttempts.push(now);
+          this.helloAttempts.set(ipPort, recentAttempts);
         }
       });
       
