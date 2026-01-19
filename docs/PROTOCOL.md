@@ -63,9 +63,9 @@ Binary Payload Format:
 Fields:
 - `ecdhPubKeyLen` (1 byte): Length of coordinator's ECDH public key
 - `ecdhPubKey` (variable): Coordinator's ECDH public key (raw bytes)
-- `encryptedData` (variable): AES-CTR encrypted signature data
+- `encryptedData` (variable): AES-GCM encrypted signature data
 
-Both parties compute ECDH shared secret. Coordinator signs **both ECDH public keys** (coordinator's + server's) with its ECDSA private key to bind them together and prevent MITM attacks. The signature data is encrypted using AES-CTR with key derived from the shared secret:
+Both parties compute ECDH shared secret. Coordinator signs **both ECDH public keys** (coordinator's + server's) with its ECDSA private key to bind them together and prevent MITM attacks. The signature data is encrypted using AES-GCM with key derived from the shared secret:
 
 ```javascript
 {
@@ -80,10 +80,10 @@ Server uses its own ECDH public key (which it already knows) and the coordinator
 
 #### Phase 3: Registration (Server → Coordinator)
 
-Server sends encrypted registration data using AES-CTR with key derived from ECDH shared secret:
+Server sends encrypted registration data using AES-GCM with key derived from ECDH shared secret:
 
 ```
-Binary: [0x01][0x03][AES-CTR Encrypted Payload]
+Binary: [0x01][0x03][AES-GCM Encrypted Payload]
 ```
 
 Encrypted JSON payload:
@@ -125,9 +125,9 @@ Binary: [0x01][0x04]
 
 **Optimization**: Ping messages contain no payload and require no encryption/decryption. The coordinator simply updates the server's timestamp upon receiving a ping from a known IP:port. This minimizes CPU usage and network overhead for frequent keepalive messages.
 
-### Challenge Refresh (AES-CTR Encrypted Payload)
+### Challenge Refresh (AES-GCM Encrypted Payload)
 
-Sent every ~10 minutes with HMAC:
+Sent every ~10 minutes. AES-GCM provides both encryption and authentication:
 
 ```
 Binary: [0x01][0x05][Encrypted payload]
@@ -140,12 +140,13 @@ Encrypted JSON:
   payload: {
     newChallenge: 'refreshed-challenge-hex',
     challengeAnswerHash: 'new-expected-hash'
-  },
-  hmac: 'hmac-using-expectedAnswer-as-key'
+  }
 }
 ```
 
-### SDP Answer (AES-CTR Encrypted Payload)
+**Security**: AES-GCM authenticated encryption ensures that only the legitimate server (with the correct `expectedAnswer` key) can send valid heartbeat messages. If decryption succeeds, authentication is guaranteed.
+
+### SDP Answer (AES-GCM Encrypted Payload)
 
 Response to client offer:
 

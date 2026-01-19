@@ -101,36 +101,49 @@ export function deriveAESKey(expectedAnswer) {
 }
 
 /**
- * Encrypt data with AES-CTR (returns Buffer)
+ * Encrypt data with AES-GCM (returns Buffer)
+ * AES-GCM provides both encryption and authentication in one operation
+ * Format: [iv (12 bytes)][authTag (16 bytes)][ciphertext]
  */
 export function encryptAES(data, key) {
-  // Generate random IV (16 bytes for AES)
-  const iv = crypto.randomBytes(16);
+  // Generate random IV (12 bytes for GCM)
+  const iv = crypto.randomBytes(12);
   
-  // Create cipher
-  const cipher = crypto.createCipheriv('aes-256-ctr', key, iv);
+  // Create cipher with GCM mode
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
   
   // Encrypt data (JSON serialized)
   const dataBuffer = Buffer.from(JSON.stringify(data), 'utf8');
   const encrypted = Buffer.concat([cipher.update(dataBuffer), cipher.final()]);
   
-  // Return IV + encrypted data as Buffer
-  return Buffer.concat([iv, encrypted]);
+  // Get authentication tag (16 bytes)
+  const authTag = cipher.getAuthTag();
+  
+  // Return IV + authTag + encrypted data as Buffer
+  return Buffer.concat([iv, authTag, encrypted]);
 }
 
 /**
- * Decrypt data with AES-CTR (accepts Buffer)
+ * Decrypt data with AES-GCM (accepts Buffer)
+ * If decryption succeeds, authentication is guaranteed
+ * Throws error if data is tampered with or uses wrong key
  */
 export function decryptAES(encryptedBuffer, key) {
   try {
-    // Extract IV (first 16 bytes)
-    const iv = encryptedBuffer.slice(0, 16);
-    const encrypted = encryptedBuffer.slice(16);
+    // Extract IV (first 12 bytes)
+    const iv = encryptedBuffer.slice(0, 12);
+    // Extract auth tag (next 16 bytes)
+    const authTag = encryptedBuffer.slice(12, 28);
+    // Rest is encrypted data
+    const encrypted = encryptedBuffer.slice(28);
     
-    // Create decipher
-    const decipher = crypto.createDecipheriv('aes-256-ctr', key, iv);
+    // Create decipher with GCM mode
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
     
-    // Decrypt
+    // Set auth tag for verification
+    decipher.setAuthTag(authTag);
+    
+    // Decrypt and verify in one operation
     const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
     
     // Parse JSON
@@ -200,7 +213,7 @@ export function decodeECDHInit(buffer) {
 /**
  * Encode ECDH response message (Phase 2: Coordinator → Server)
  * Format: [ecdhPubKeyLen(1)][ecdhPubKey][encryptedData]
- * encryptedData contains AES-CTR encrypted {timestamp, signature}
+ * encryptedData contains AES-GCM encrypted {timestamp, signature}
  */
 export function encodeECDHResponse(ecdhPublicKey, encryptedData) {
   const ecdhPubKeyBuffer = ecdhPublicKey; // Already a Buffer

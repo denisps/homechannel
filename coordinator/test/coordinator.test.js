@@ -15,11 +15,10 @@ function withTimeout(promise, timeoutMs = 3000, errorMsg = 'Operation timed out'
     )
   ]);
 }
-import { PROTOCOL_VERSION, MESSAGE_TYPES } from '../../shared/protocol.js';
+import { PROTOCOL_VERSION, MESSAGE_TYPES, buildUDPMessage } from '../../shared/protocol.js';
 import { 
   signData, 
   verifySignature, 
-  createHMAC, 
   generateChallenge, 
   hashChallengeAnswer, 
   deriveAESKey, 
@@ -163,8 +162,7 @@ class MockServer {
 
     const message = {
       type: 'heartbeat',
-      payload,
-      hmac: createHMAC(payload, expectedAnswer)
+      payload
     };
 
     return this.send(message, coordinatorPort, MESSAGE_TYPES.HEARTBEAT, true, expectedAnswer);
@@ -548,7 +546,7 @@ describe('Coordinator with Mock Server', () => {
     await testMockServer.stop();
   });
 
-  test('should reject invalid HMAC in heartbeat', async () => {
+  test('should reject tampered heartbeat (AES-GCM authentication)', async () => {
     // First register
     const challenge1 = generateChallenge();
     const expectedAnswer1 = hashChallengeAnswer(challenge1, 'password123');
@@ -567,21 +565,38 @@ describe('Coordinator with Mock Server', () => {
       challengeAnswerHash: expectedAnswer2
     };
 
-    // Send with wrong HMAC
     const message = {
       type: 'heartbeat',
-      payload,
-      hmac: 'invalid-hmac'
+      payload
     };
 
-    await mockServer.send(message, coordinatorPort, MESSAGE_TYPES.HEARTBEAT, true, expectedAnswer1);
+    // Encrypt and then tamper with the ciphertext
+    const key = deriveAESKey(expectedAnswer1);
+    const encrypted = encryptAES(message, key);
+    
+    // Tamper with the encrypted data (flip a bit in the ciphertext)
+    encrypted[30] ^= 0xFF;
+    
+    const udpMessage = buildUDPMessage(MESSAGE_TYPES.HEARTBEAT, encrypted);
+    
+    await withTimeout(
+      new Promise((resolve) => {
+        mockServer.socket.send(udpMessage, coordinatorPort, '127.0.0.1', (err) => {
+          if (err) console.error('Send error:', err);
+          resolve();
+        });
+      }),
+      500,
+      'Send timed out'
+    );
+    
     await withTimeout(
       new Promise(resolve => setTimeout(resolve, 100)),
       500,
       'Invalid heartbeat processing timed out'
     );
 
-    // Challenge should not be updated
+    // Challenge should not be updated (tampered message rejected)
     const server = registry.getServerByPublicKey(mockServer.serverPublicKey);
     assert.strictEqual(server.challenge, challenge1);
   });

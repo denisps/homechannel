@@ -9,8 +9,6 @@ import {
   verifySignature,
   signBinaryData,
   verifyBinarySignature,
-  verifyHMAC,
-  createHMAC,
   encodeECDHInit,
   decodeECDHInit,
   encodeECDHResponse,
@@ -387,16 +385,13 @@ export class UDPClient {
         challengeAnswerHash: newExpectedAnswer
       };
       
-      // Create HMAC using current expectedAnswer
-      const hmac = createHMAC(hbPayload, this.expectedAnswer);
-      
       const message = {
         type: 'heartbeat',
-        payload: hbPayload,
-        hmac
+        payload: hbPayload
       };
       
       // Encrypt with current AES key (before updating)
+      // AES-GCM provides both encryption and authentication
       const encryptedPayload = encryptAES(message, this.aesKey);
       
       const udpMessage = buildUDPMessage(MESSAGE_TYPES.HEARTBEAT, encryptedPayload);
@@ -422,23 +417,13 @@ export class UDPClient {
    */
   handleHeartbeat(payload) {
     try {
+      // AES-GCM decryption automatically verifies authentication
+      // If decryption succeeds, message is authentic
       const data = decryptAES(payload, this.aesKey);
 
       if (data.type !== 'heartbeat') {
         console.warn('Invalid heartbeat message');
         return;
-      }
-
-      // Verify HMAC if present
-      if (data.hmac && this.expectedAnswer) {
-        const hmacData = {
-          type: 'heartbeat',
-          payload: data.payload
-        };
-        if (!verifyHMAC(hmacData, data.hmac, this.expectedAnswer)) {
-          console.warn('Heartbeat HMAC verification failed');
-          return;
-        }
       }
 
       // Update challenge
@@ -761,19 +746,14 @@ export class UDPServer {
       }
 
       // Decrypt using expectedAnswer as key
+      // AES-GCM decryption automatically verifies authentication
       const key = deriveAESKey(expectedAnswer);
       const message = decryptAES(payload, key);
 
-      const { payload: hbPayload, hmac } = message;
+      const { payload: hbPayload } = message;
 
-      if (!hbPayload || !hmac) {
+      if (!hbPayload) {
         console.error('Invalid heartbeat message');
-        return;
-      }
-
-      // Verify HMAC using expectedAnswer as key
-      if (!verifyHMAC(hbPayload, hmac, expectedAnswer)) {
-        console.error('Invalid HMAC in heartbeat');
         return;
       }
 

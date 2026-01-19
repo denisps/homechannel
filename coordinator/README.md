@@ -6,9 +6,9 @@ The coordinator is a publicly accessible signaling server that facilitates WebRT
 
 - **UDP Communication**: ECDH-based two-phase registration with binary protocol
 - **Memory-Compact State**: Minimal server registry (publicKey → {ipPort, challenge, expectedAnswer, timestamp})
-- **Optimized Protocol**: Tiny keepalive pings (30s), HMAC-authenticated challenge refresh (10min)
-- **ECDSA Security**: ECDH key exchange signed with ECDSA keys, ongoing HMAC authentication
-- **AES-CTR Encryption**: All communication after ECDH handshake is encrypted
+- **Optimized Protocol**: Tiny keepalive pings (30s), authenticated challenge refresh (10min)
+- **ECDSA Security**: ECDH key exchange signed with ECDSA keys
+- **AES-GCM Encryption**: All communication after ECDH handshake uses authenticated encryption
 - **Rate Limiting**: Connection attempt tracking and rate limiting
 - **Auto Cleanup**: Periodic cleanup of expired server records and ECDH sessions
 
@@ -102,14 +102,14 @@ Format: [ecdhPubKeyLen(1)][ecdhPubKey][encryptedData]
 Fields:
 - ecdhPubKeyLen: 1 byte - length of coordinator's ECDH public key
 - ecdhPubKey: variable - coordinator's ECDH public key (raw bytes)
-- encryptedData: variable - AES-CTR encrypted {timestamp, signature}
+- encryptedData: variable - AES-GCM encrypted {timestamp, signature}
 
 Both parties compute ECDH shared secret. Coordinator's ECDSA signature on its ECDH public key is encrypted with shared secret. Server verifies coordinator identity using trusted coordinator public key.
 
 Security: Coordinator proves identity, but signature is encrypted. Observer cannot impersonate coordinator.
 ```
 
-**Phase 3: Registration** (from server, AES-CTR encrypted JSON):
+**Phase 3: Registration** (from server, AES-GCM encrypted JSON):
 ```
 Encrypted with key derived from ECDH shared secret
 
@@ -129,7 +129,7 @@ Security: Server identity (ECDSA public key) and challenge data only revealed af
 
 After registration, expectedAnswer becomes the shared secret for all future communication.
 
-**All messages below have AES-CTR encrypted JSON payloads (key from expectedAnswer)**
+**All messages below have AES-GCM encrypted JSON payloads (key from expectedAnswer)**
 
 **Keepalive Ping** (from server, every ~30s):
 ```javascript
@@ -145,8 +145,7 @@ After registration, expectedAnswer becomes the shared secret for all future comm
   payload: {
     newChallenge: '...',
     challengeAnswerHash: '...'
-  },
-  hmac: 'hmac-using-expectedAnswer'
+  }
 }
 ```
 
@@ -180,7 +179,7 @@ Map<serverPublicKey, {
 
 **Key Features:**
 - Server identified by IP:port for ongoing communication (no public key needed)
-- expectedAnswer used as shared secret for HMAC authentication
+- expectedAnswer used as shared secret for AES-GCM encryption
 - Minimal state per server
 - Periodic cleanup of expired entries
 - Separate connection log for rate limiting
@@ -188,11 +187,12 @@ Map<serverPublicKey, {
 ## Security
 
 - **Binary Protocol**: Version + type bytes avoid fingerprinting
-- **Initial Registration**: ECDSA signature verification (unencrypted JSON payload)
-- **Ongoing Communication**: AES-CTR encryption using expectedAnswer as key
+- **Initial Registration**: ECDSA signature verification (encrypted with ECDH shared secret)
+- **Ongoing Communication**: AES-GCM authenticated encryption using expectedAnswer as key
   - 256-bit AES key derived from expectedAnswer
   - Random IV for each message
-  - HMAC authentication for challenge updates
+  - Authentication tag ensures message integrity
+  - If decryption succeeds, authentication is guaranteed
 - **No Round-trips**: Shared secret eliminates signature overhead
 - **Rate Limiting**: Connection attempt tracking per client
 - **Challenge Refresh**: Periodic challenge updates for security

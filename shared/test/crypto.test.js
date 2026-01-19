@@ -34,12 +34,32 @@ describe('shared crypto utilities', () => {
     assert.strictEqual(answer1, answer2);
   });
 
-  test('AES-CTR encrypt/decrypt roundtrip', () => {
+  test('AES-GCM encrypt/decrypt roundtrip', () => {
     const key = deriveAESKey('test-expected-answer');
     const data = { type: 'test', value: 123 };
     const encrypted = encryptAES(data, key);
     const decrypted = decryptAES(encrypted, key);
     assert.deepStrictEqual(decrypted, data);
+  });
+
+  test('AES-GCM detects tampering', () => {
+    const key = deriveAESKey('test-expected-answer');
+    const data = { type: 'test', value: 123 };
+    const encrypted = encryptAES(data, key);
+    
+    // Tamper with the ciphertext
+    encrypted[30] ^= 0xFF;
+    
+    assert.throws(() => decryptAES(encrypted, key));
+  });
+
+  test('AES-GCM detects wrong key', () => {
+    const key1 = deriveAESKey('test-expected-answer-1');
+    const key2 = deriveAESKey('test-expected-answer-2');
+    const data = { type: 'test', value: 123 };
+    const encrypted = encryptAES(data, key1);
+    
+    assert.throws(() => decryptAES(encrypted, key2));
   });
 
   test('ECDH shared secret matches on both sides', () => {

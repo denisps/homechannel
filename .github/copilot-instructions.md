@@ -38,14 +38,14 @@ homechannel/
 - **Client**: Verifies signatures from coordinator and server
 
 ### Communication Security
-- **Registration**: ECDSA-signed, unencrypted (initial ECDH)
-- **Ongoing UDP**: AES-256-CTR encrypted using expectedAnswer as key
+- **Registration**: ECDSA-signed, encrypted with ECDH shared secret
+- **Ongoing UDP**: AES-256-GCM authenticated encryption using expectedAnswer as key
 - **Challenge-Response**: Prevents brute-force and DDoS
 
 ### Encryption Details
 - **AES Key**: Derived from expectedAnswer via SHA-256
-- **IV**: Random 16 bytes per message
-- **HMAC**: SHA-256 for challenge refresh
+- **IV**: Random 12 bytes per message (GCM standard)
+- **Auth Tag**: 16 bytes (GCM provides both encryption and authentication)
 
 ## Coordinator State
 
@@ -64,7 +64,7 @@ Map<serverPublicKey, {
 
 ## Code Examples
 
-### AES-CTR Encryption
+### AES-GCM Encryption
 ```javascript
 function deriveAESKey(expectedAnswer) {
   const hash = crypto.createHash('sha256');
@@ -73,56 +73,28 @@ function deriveAESKey(expectedAnswer) {
 }
 
 function encryptAES(data, key) {
-  const iv = crypto.randomBytes(16);
-  const cipher = crypto.createCipheriv('aes-256-ctr', key, iv);
+  const iv = crypto.randomBytes(12);  // 12 bytes for GCM
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
   const dataBuffer = Buffer.from(JSON.stringify(data), 'utf8');
   const encrypted = Buffer.concat([cipher.update(dataBuffer), cipher.final()]);
-  return Buffer.concat([iv, encrypted]).toString('hex');
+  const authTag = cipher.getAuthTag();  // 16 bytes authentication tag
+  return Buffer.concat([iv, authTag, encrypted]);
 }
 
-function decryptAES(encryptedHex, key) {
-  const buffer = Buffer.from(encryptedHex, 'hex');
-  const iv = buffer.slice(0, 16);
-  const encrypted = buffer.slice(16);
-  const decipher = crypto.createDecipheriv('aes-256-ctr', key, iv);
+function decryptAES(encryptedBuffer, key) {
+  const iv = encryptedBuffer.slice(0, 12);
+  const authTag = encryptedBuffer.slice(12, 28);
+  const encrypted = encryptedBuffer.slice(28);
+  const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+  decipher.setAuthTag(authTag);
   const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
   return JSON.parse(decrypted.toString('utf8'));
 }
 ```
 
+**Note**: AES-GCM provides authenticated encryption. If decryption succeeds, message integrity is guaranteed. No separate HMAC needed.
+
 ### ECDSA Signing
-```javascript
-function signData(data, privateKey) {
-  const sign = crypto.createSign('SHA256');
-  sign.update(JSON.stringify(data));
-  return sign.sign(privateKey, 'hex');
-}
-
-function verifySignature(data, signature, publicKey) {
-  const verify = crypto.createVerify('SHA256');
-  verify.update(JSON.stringify(data));
-  return verify.verify(publicKey, signature, 'hex');
-}
-```
-
-### HMAC
-```javascript
-function createHMAC(data, secret) {
-  const hmac = crypto.createHmac('sha256', secret);
-  hmac.update(JSON.stringify(data));
-  return hmac.digest('hex');
-}
-
-function verifyHMAC(data, hmacValue, secret) {
-  const expected = createHMAC(data, secret);
-  return crypto.timingSafeEqual(
-    Buffer.from(hmacValue, 'hex'),
-    Buffer.from(expected, 'hex')
-  );
-}
-```
-
-## UDP Message Format
 
 **Binary protocol format** (avoid fingerprinting, minimize overhead):
 ```
@@ -134,10 +106,10 @@ function verifyHMAC(data, hmacValue, secret) {
 **Message Types**:
 - `0x01` - ECDH Init (Phase 1 of registration)
 - `0x02` - ECDH Response (Phase 2 of registration)
-- `0x03` - Registration (Phase 3, AES-CTR encrypted)
-- `0x04` - Ping (AES-CTR encrypted)
-- `0x05` - Heartbeat (AES-CTR encrypted)
-- `0x06` - Answer (AES-CTR encrypted)
+- `0x03` - Registration (Phase 3, AES-GCM encrypted)
+- `0x04` - Ping (AES-GCM encrypted)
+- `0x05` - Heartbeat (AES-GCM encrypted)
+- `0x06` - Answer (AES-GCM encrypted)
 
 **ECDH Init** (binary payload, NO signatures or identities):
 ```
@@ -149,9 +121,9 @@ Server sends only ECDH public key. No server identity revealed.
 ```
 Format: [ecdhPubKeyLen(1)][ecdhPubKey][encryptedData]
 ```
-Coordinator sends ECDH public key plus AES-CTR encrypted `{timestamp, signature}` using shared secret.
+Coordinator sends ECDH public key plus AES-GCM encrypted `{timestamp, signature}` using shared secret.
 
-**Registration** (AES-CTR encrypted JSON, key from ECDH shared secret):
+**Registration** (AES-GCM encrypted JSON, key from ECDH shared secret):
 ```javascript
 { 
   serverPublicKey,    // Server identity revealed only after encryption
@@ -161,11 +133,11 @@ Coordinator sends ECDH public key plus AES-CTR encrypted `{timestamp, signature}
 }
 ```
 
-**All other messages** (AES-CTR encrypted JSON, key from expectedAnswer):
+**All other messages** (AES-GCM encrypted JSON, key from expectedAnswer):
 ```javascript
 { type: 'ping' }  // Keepalive
 
-{ type: 'heartbeat', payload: {...}, hmac: '...' }  // Challenge refresh
+{ type: 'heartbeat', payload: {...} }  // Challenge refresh (auth via GCM)
 
 { type: 'answer', ...payload, signature: '...' }  // SDP answer
 ```
@@ -260,7 +232,7 @@ Best practices:
 ✅ Clear, self-documenting code
 ✅ Proper error handling
 ✅ ECDSA for signatures
-✅ AES-CTR for encryption
+✅ AES-GCM for authenticated encryption
 ✅ Input validation and sanitization
 ✅ Tests for critical functionality
 ✅ Semantic versioning

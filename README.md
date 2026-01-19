@@ -11,7 +11,7 @@ HomeChannel enables direct peer-to-peer connections between browser clients and 
 - **Zero Build Tooling**: Pure JavaScript (ES modules), no transpilation or bundling
 - **Minimal Dependencies**: Uses only Node.js built-in modules
 - **Direct P2P**: WebRTC datachannel between client and server
-- **Secure**: ECDSA signatures, AES-CTR encryption, challenge-response authentication
+- **Secure**: ECDSA signatures, AES-GCM authenticated encryption, challenge-response authentication
 - **Lightweight**: Memory-compact design, optimized protocol
 - **NAT-Friendly**: Efficient keepalive and NAT traversal
 
@@ -56,9 +56,9 @@ cd ../server
 ## Security Model
 
 - **ECDSA P-256**: Initial handshake and signature verification
-- **AES-CTR Encryption**: All server-coordinator UDP messages (except registration)
+- **AES-GCM Encryption**: All server-coordinator UDP messages (after ECDH)
 - **Challenge-Response**: Prevents brute-force and DDoS attacks
-- **HMAC Authentication**: For ongoing communication integrity
+- **Authenticated Encryption**: AES-GCM provides both confidentiality and integrity
 - **Direct Datachannel**: Coordinator cannot intercept peer data
 
 ## Protocol
@@ -66,7 +66,7 @@ cd ../server
 ### Server ↔ Coordinator (UDP)
 - **Registration**: ECDSA-signed, encrypted with ECDH shared secret
 - **Keepalive**: Optimized ping (no payload, no encryption), every 30s
-- **Challenge Refresh**: AES-CTR encrypted heartbeat, every 10 minutes
+- **Challenge Refresh**: AES-GCM encrypted heartbeat, every 10 minutes
 
 ### Client ↔ Coordinator (HTTPS)
 - Standard polling (no WebSockets)
@@ -80,7 +80,7 @@ See [PROTOCOL.md](docs/PROTOCOL.md) for detailed specifications.
 - [PROTOCOL.md](docs/PROTOCOL.md) - Detailed protocol specifications
 - [SECURITY.md](docs/SECURITY.md) - Security architecture and cryptography
 - [ARCHITECTURE.md](docs/ARCHITECTURE.md) - System design and components
-- [shared/crypto.js](shared/crypto.js) - Shared crypto primitives (ECDSA, ECDH, AES-CTR, HMAC)
+- [shared/crypto.js](shared/crypto.js) - Shared crypto primitives (ECDSA, ECDH, AES-GCM)
 - [shared/protocol.js](shared/protocol.js) - Shared protocol constants and UDP framing helpers
 - [coordinator/README.md](coordinator/README.md) - Coordinator implementation
 - [.github/copilot-instructions.md](.github/copilot-instructions.md) - Development guidelines
@@ -117,7 +117,7 @@ npm run test:watch
 ## Roadmap
 
 - [x] Coordinator implementation with tests
-- [x] AES-CTR encryption for UDP communication
+- [x] AES-GCM authenticated encryption for UDP communication
 - [ ] Server implementation
 - [ ] Client implementation
 - [ ] HTTPS endpoints for client-coordinator communication

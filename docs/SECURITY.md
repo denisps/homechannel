@@ -28,16 +28,13 @@ Each component has its own ECDSA key pair:
 - **Digest**: SHA-256
 - **Use**: Initial registration, SDP/candidate exchange
 
-### AES-CTR Encryption
-- **Algorithm**: AES-256-CTR
+### AES-GCM Authenticated Encryption
+- **Algorithm**: AES-256-GCM
 - **Key**: Derived from expectedAnswer via SHA-256
-- **IV**: Random 16 bytes per message
+- **IV**: Random 12 bytes per message
+- **Authentication**: Built-in 16-byte authentication tag
 - **Use**: All server-coordinator UDP after registration
-
-### HMAC Authentication
-- **Algorithm**: HMAC-SHA-256
-- **Key**: expectedAnswer (shared secret)
-- **Use**: Challenge refresh messages
+- **Properties**: Provides both confidentiality and authenticity in one operation
 
 ### Key Derivation
 ```javascript
@@ -82,17 +79,19 @@ Prevents brute-force and DDoS attacks on home servers.
 - Coordinator verifies against server's public key
 - Replay attacks mitigated by timestamp checking
 
-### Phase 2: Ongoing Communication (AES-CTR Encrypted)
+### Phase 2: Ongoing Communication (AES-GCM Encrypted)
 
-**Why AES-CTR?**
-- Confidentiality for all server-coordinator traffic
-- Stream cipher properties (no padding)
-- Fast and efficient
+**Why AES-GCM?**
+- Authenticated encryption (confidentiality + authenticity)
+- Single operation for encrypt + authenticate (20-100x faster than ECDSA)
+- Built-in tampering detection
+- Industry standard for secure communication
 
 **Protection:**
 - Random IV prevents pattern analysis
 - expectedAnswer as shared secret
-- HMAC for message authentication
+- Authentication tag ensures message integrity
+- If decryption succeeds, authentication is guaranteed
 
 ## WebRTC Security
 
@@ -107,12 +106,13 @@ Once datachannel is established:
 
 ### Protected Against
 
-✅ **Man-in-the-Middle**: ECDSA signatures + AES encryption
-✅ **Eavesdropping**: AES-CTR encryption of all sensitive data
+✅ **Man-in-the-Middle**: ECDSA signatures + AES-GCM encryption
+✅ **Eavesdropping**: AES-GCM encryption of all sensitive data
 ✅ **Brute-Force**: Challenge-response at coordinator
 ✅ **DDoS**: Server never sees unauthorized attempts
 ✅ **Replay Attacks**: Timestamps + random IVs
 ✅ **Pattern Analysis**: Random IVs prevent traffic analysis
+✅ **Tampering**: AES-GCM authentication tag detects modifications
 
 ### Not Protected Against
 

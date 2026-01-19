@@ -35,20 +35,20 @@ HomeChannel's three-component architecture enables direct peer-to-peer connectio
 - Initiates UDP connection to coordinator
 - Generates challenge for client authentication
 - Signs all payloads with ECDSA private key
-- Sends AES-CTR encrypted messages to coordinator
+- Sends AES-GCM encrypted messages to coordinator
 - WebRTC peer connection handling (creates answer)
 - Gathers all ICE candidates before sending
 - Local service proxying (VNC, SSH, files)
 
 **Communication**:
-- UDP to coordinator (AES-CTR encrypted after registration)
+- UDP to coordinator (AES-GCM encrypted after registration)
 - Direct WebRTC datachannel to client
 
 **Key Files**:
 - `/server/index.js` - Main server entry point
-- `/server/udp.js` - UDP: ECDH initial, AES-CTR ongoing
+- `/server/udp.js` - UDP: ECDH initial, AES-GCM ongoing
 - `/server/webrtc.js` - WebRTC connection handling
-- `/server/crypto.js` - ECDSA signing, AES-CTR encryption
+- `/server/crypto.js` - ECDSA signing, AES-GCM encryption
 - `/server/challenge.js` - Challenge generation
 - `/server/services/` - Service handlers (VNC, SSH, files)
 
@@ -64,22 +64,22 @@ HomeChannel's three-component architecture enables direct peer-to-peer connectio
 - Relays signed payloads between client and server
 - Periodic UDP exchange with servers
 - Challenge refresh management
-- AES-CTR encryption/decryption
+- AES-GCM encryption/decryption
 
 **Communication**:
 - HTTPS with clients (polling)
-- UDP with servers (AES-CTR encrypted)
+- UDP with servers (AES-GCM encrypted)
 - Signs all responses
 
 **Key Files**:
 - `/coordinator/index.js` - Main coordinator entry point
 - `/coordinator/https.js` - HTTPS server for clients
-- `/coordinator/udp.js` - UDP: ECDH initial, AES-CTR ongoing
+- `/coordinator/udp.js` - UDP: ECDH initial, AES-GCM ongoing
 - `/coordinator/registry.js` - Memory-compact server registry
 - `/coordinator/relay.js` - Payload relay
 - `/coordinator/cleanup.js` - Periodic cleanup of expired servers
 - `/coordinator/ratelimit.js` - Connection attempt rate limiting
-- `/shared/crypto.js` - ECDSA, AES-CTR, HMAC operations (shared with server)
+- `/shared/crypto.js` - ECDSA and AES-GCM operations (shared with server)
 - `/shared/keys.js` - Key loading and generation utilities
 
 ## Data Flow
@@ -129,8 +129,8 @@ Server                    Coordinator
   │──ping (AES-encrypted)────→│
   │   every 30s               │ Update timestamp
   │                           │
-  │──heartbeat (AES+HMAC)────→│
-  │   every 10 min            │ Verify HMAC
+  │──heartbeat (AES-GCM)────→│
+  │   every 10 min            │ Decrypt & verify
   │                           │ Update challenge
   │                           │
 ```
@@ -166,13 +166,13 @@ Map<clientId, Array<timestamp>>
 - WebRTC for client-server (direct P2P)
 
 ### Layer 2: Encryption
-- AES-256-CTR for UDP messages (after registration)
+- AES-256-GCM for UDP messages (after registration)
 - TLS for HTTPS (standard browser behavior)
 - DTLS for WebRTC (automatic)
 
 ### Layer 3: Authentication
 - ECDSA P-256 signatures
-- HMAC-SHA-256 for integrity
+- AES-GCM authenticated encryption
 - Challenge-response for authorization
 
 ### Layer 4: Application
