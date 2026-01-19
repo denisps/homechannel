@@ -1,0 +1,232 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1800" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; font-size: 14px;">
+  <defs>
+    <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <polygon points="0 0, 10 3, 0 6" fill="#333" />
+    </marker>
+    <marker id="arrowhead-green" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <polygon points="0 0, 10 3, 0 6" fill="#28a745" />
+    </marker>
+    <marker id="arrowhead-blue" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <polygon points="0 0, 10 3, 0 6" fill="#007bff" />
+    </marker>
+  </defs>
+  
+  <!-- Title -->
+  <text x="600" y="30" text-anchor="middle" font-size="24" font-weight="bold" fill="#333">HomeChannel Protocol Flow</text>
+  
+  <!-- Actors -->
+  <g id="actors">
+    <!-- Client -->
+    <rect x="50" y="60" width="120" height="60" fill="#e3f2fd" stroke="#1976d2" stroke-width="2" rx="5"/>
+    <text x="110" y="95" text-anchor="middle" font-weight="bold">Client</text>
+    <text x="110" y="110" text-anchor="middle" font-size="12">(Browser)</text>
+    
+    <!-- Coordinator -->
+    <rect x="540" y="60" width="120" height="60" fill="#fff3e0" stroke="#f57c00" stroke-width="2" rx="5"/>
+    <text x="600" y="95" text-anchor="middle" font-weight="bold">Coordinator</text>
+    <text x="600" y="110" text-anchor="middle" font-size="12">(Public)</text>
+    
+    <!-- Server -->
+    <rect x="1030" y="60" width="120" height="60" fill="#e8f5e9" stroke="#388e3c" stroke-width="2" rx="5"/>
+    <text x="1090" y="95" text-anchor="middle" font-weight="bold">Server</text>
+    <text x="1090" y="110" text-anchor="middle" font-size="12">(Home)</text>
+    
+    <!-- Lifelines -->
+    <line x1="110" y1="120" x2="110" y2="1750" stroke="#ccc" stroke-width="2" stroke-dasharray="5,5"/>
+    <line x1="600" y1="120" x2="600" y2="1750" stroke="#ccc" stroke-width="2" stroke-dasharray="5,5"/>
+    <line x1="1090" y1="120" x2="1090" y2="1750" stroke="#ccc" stroke-width="2" stroke-dasharray="5,5"/>
+  </g>
+  
+  <!-- Phase: Server Registration -->
+  <rect x="20" y="150" width="1160" height="30" fill="#f5f5f5" stroke="#999" stroke-width="1"/>
+  <text x="600" y="170" text-anchor="middle" font-weight="bold" fill="#555">SERVER REGISTRATION (UDP - 5 Phases with DoS Protection)</text>
+  
+  <!-- Phase 1: HELLO -->
+  <g id="phase1">
+    <text x="20" y="210" font-weight="bold" fill="#388e3c">Phase 1: HELLO</text>
+    <line x1="1090" y1="220" x2="600" y2="220" stroke="#388e3c" stroke-width="2" marker-end="url(#arrowhead-green)"/>
+    <text x="845" y="215" fill="#388e3c">HELLO (serverTag)</text>
+    <text x="845" y="235" font-size="12" fill="#666">Minimal processing, IP untrusted</text>
+  </g>
+  
+  <!-- Phase 2: HELLO_ACK -->
+  <g id="phase2">
+    <text x="20" y="270" font-weight="bold" fill="#f57c00">Phase 2: HELLO_ACK</text>
+    <line x1="600" y1="280" x2="1090" y2="280" stroke="#f57c00" stroke-width="2" marker-end="url(#arrowhead)"/>
+    <text x="770" y="275" fill="#f57c00">HELLO_ACK (serverTag, coordinatorTag)</text>
+    <text x="770" y="295" font-size="12" fill="#666">Rate-limited replies</text>
+  </g>
+  
+  <!-- Phase 3: ECDH Init -->
+  <g id="phase3">
+    <text x="20" y="330" font-weight="bold" fill="#388e3c">Phase 3: ECDH Init</text>
+    <line x1="1090" y1="340" x2="600" y2="340" stroke="#388e3c" stroke-width="2" marker-end="url(#arrowhead-green)"/>
+    <text x="770" y="335" fill="#388e3c">ECDH_INIT (coordinatorTag, ECDH pubkey)</text>
+    <text x="770" y="355" font-size="12" fill="#666">Tag verified before expensive ECDH</text>
+  </g>
+  
+  <!-- Phase 4: ECDH Response -->
+  <g id="phase4">
+    <text x="20" y="390" font-weight="bold" fill="#f57c00">Phase 4: ECDH Response</text>
+    <line x1="600" y1="400" x2="1090" y2="400" stroke="#f57c00" stroke-width="2" marker-end="url(#arrowhead)"/>
+    <text x="730" y="395" fill="#f57c00">ECDH_RESPONSE (ECDH pubkey, encrypted signature)</text>
+    <text x="730" y="415" font-size="12" fill="#666">Shared secret established, coordinator authenticated</text>
+  </g>
+  
+  <!-- Phase 5: Registration -->
+  <g id="phase5">
+    <text x="20" y="450" font-weight="bold" fill="#388e3c">Phase 5: Registration</text>
+    <line x1="1090" y1="460" x2="600" y2="460" stroke="#388e3c" stroke-width="2" marker-end="url(#arrowhead-green)"/>
+    <text x="700" y="455" fill="#388e3c">REGISTER (encrypted: serverPubKey, challenge, signature)</text>
+    <text x="700" y="475" font-size="12" fill="#666">Server identity revealed only after encryption</text>
+    
+    <line x1="600" y1="490" x2="1090" y2="490" stroke="#f57c00" stroke-width="2" marker-end="url(#arrowhead)"/>
+    <text x="770" y="485" fill="#f57c00">REGISTER_ACK (encrypted: status OK)</text>
+    <text x="770" y="505" font-size="12" fill="#666">Registration complete</text>
+  </g>
+  
+  <!-- Registration complete note -->
+  <rect x="1000" y="520" width="180" height="60" fill="#c8e6c9" stroke="#388e3c" stroke-width="1" rx="3"/>
+  <text x="1090" y="540" text-anchor="middle" font-size="12" font-weight="bold">Server Registered</text>
+  <text x="1090" y="555" text-anchor="middle" font-size="11">Challenge stored</text>
+  <text x="1090" y="570" text-anchor="middle" font-size="11">expectedAnswer = AES key</text>
+  
+  <!-- Phase: Keepalive -->
+  <rect x="20" y="600" width="1160" height="30" fill="#f5f5f5" stroke="#999" stroke-width="1"/>
+  <text x="600" y="620" text-anchor="middle" font-weight="bold" fill="#555">KEEPALIVE (Every ~30 seconds)</text>
+  
+  <g id="keepalive">
+    <line x1="1090" y1="650" x2="600" y2="650" stroke="#388e3c" stroke-width="2" marker-end="url(#arrowhead-green)"/>
+    <text x="845" y="645" fill="#388e3c">PING (no payload)</text>
+    <text x="845" y="665" font-size="12" fill="#666">Optimized - no encryption</text>
+    
+    <rect x="550" y="675" width="100" height="30" fill="#fff3e0" stroke="#f57c00" stroke-width="1" rx="3"/>
+    <text x="600" y="695" text-anchor="middle" font-size="11">Update timestamp</text>
+  </g>
+  
+  <!-- Phase: Challenge Refresh -->
+  <rect x="20" y="730" width="1160" height="30" fill="#f5f5f5" stroke="#999" stroke-width="1"/>
+  <text x="600" y="750" text-anchor="middle" font-weight="bold" fill="#555">CHALLENGE REFRESH (Every ~10 minutes)</text>
+  
+  <g id="heartbeat">
+    <line x1="1090" y1="780" x2="600" y2="780" stroke="#388e3c" stroke-width="2" marker-end="url(#arrowhead-green)"/>
+    <text x="770" y="775" fill="#388e3c">HEARTBEAT (encrypted: newChallenge, newHash)</text>
+    <text x="770" y="795" font-size="12" fill="#666">AES-GCM with expectedAnswer as key</text>
+    
+    <rect x="550" y="805" width="100" height="30" fill="#fff3e0" stroke="#f57c00" stroke-width="1" rx="3"/>
+    <text x="600" y="825" text-anchor="middle" font-size="11">Update challenge</text>
+  </g>
+  
+  <!-- Phase: Client Connection -->
+  <rect x="20" y="860" width="1160" height="30" fill="#f5f5f5" stroke="#999" stroke-width="1"/>
+  <text x="600" y="880" text-anchor="middle" font-weight="bold" fill="#555">CLIENT CONNECTION (HTTPS Polling + WebRTC)</text>
+  
+  <!-- Step 1: Get coordinator key -->
+  <g id="client-step1">
+    <text x="20" y="920" font-weight="bold" fill="#1976d2">1. Get Coordinator Key</text>
+    <line x1="110" y1="930" x2="600" y2="930" stroke="#1976d2" stroke-width="2" marker-end="url(#arrowhead-blue)"/>
+    <text x="250" y="925" fill="#1976d2">GET /api/coordinator-key</text>
+    
+    <line x1="600" y1="950" x2="110" y2="950" stroke="#1976d2" stroke-width="2" marker-end="url(#arrowhead-blue)"/>
+    <text x="250" y="945" fill="#1976d2">coordinatorPublicKey</text>
+  </g>
+  
+  <!-- Step 2: List servers -->
+  <g id="client-step2">
+    <text x="20" y="990" font-weight="bold" fill="#1976d2">2. List Servers</text>
+    <line x1="110" y1="1000" x2="600" y2="1000" stroke="#1976d2" stroke-width="2" marker-end="url(#arrowhead-blue)"/>
+    <text x="250" y="995" fill="#1976d2">POST /api/servers</text>
+    
+    <line x1="600" y1="1020" x2="110" y2="1020" stroke="#1976d2" stroke-width="2" marker-end="url(#arrowhead-blue)"/>
+    <text x="250" y="1015" fill="#1976d2">{servers: [{challenge, online}]}</text>
+  </g>
+  
+  <!-- Step 3: Compute challenge answer -->
+  <g id="client-step3">
+    <text x="20" y="1060" font-weight="bold" fill="#1976d2">3. Compute Challenge Answer</text>
+    <rect x="30" y="1070" width="160" height="50" fill="#e3f2fd" stroke="#1976d2" stroke-width="1" rx="3"/>
+    <text x="110" y="1090" text-anchor="middle" font-size="12">answer = SHA256(</text>
+    <text x="110" y="1105" text-anchor="middle" font-size="12">challenge + password)</text>
+  </g>
+  
+  <!-- Step 4: Gather ICE candidates -->
+  <g id="client-step4">
+    <text x="20" y="1145" font-weight="bold" fill="#1976d2">4. Gather ICE Candidates</text>
+    <rect x="30" y="1155" width="160" height="40" fill="#e3f2fd" stroke="#1976d2" stroke-width="1" rx="3"/>
+    <text x="110" y="1175" text-anchor="middle" font-size="12">WebRTC: gather all</text>
+    <text x="110" y="1190" text-anchor="middle" font-size="12">ICE candidates</text>
+  </g>
+  
+  <!-- Step 5: Send offer -->
+  <g id="client-step5">
+    <text x="20" y="1220" font-weight="bold" fill="#1976d2">5. Send Offer</text>
+    <line x1="110" y1="1230" x2="600" y2="1230" stroke="#1976d2" stroke-width="2" marker-end="url(#arrowhead-blue)"/>
+    <text x="200" y="1225" fill="#1976d2">POST /api/connect (answer, SDP, candidates)</text>
+    
+    <line x1="600" y1="1250" x2="110" y2="1250" stroke="#1976d2" stroke-width="2" marker-end="url(#arrowhead-blue)"/>
+    <text x="250" y="1245" fill="#1976d2">{sessionId}</text>
+  </g>
+  
+  <!-- Step 6: Coordinator verifies and relays -->
+  <g id="client-step6">
+    <text x="20" y="1290" font-weight="bold" fill="#f57c00">6. Verify & Relay</text>
+    <rect x="530" y="1300" width="140" height="50" fill="#fff3e0" stroke="#f57c00" stroke-width="1" rx="3"/>
+    <text x="600" y="1320" text-anchor="middle" font-size="12">Verify challenge answer</text>
+    <text x="600" y="1335" text-anchor="middle" font-size="12">Match: expectedAnswer</text>
+    
+    <line x1="600" y1="1365" x2="1090" y2="1365" stroke="#f57c00" stroke-width="2" marker-end="url(#arrowhead)"/>
+    <text x="730" y="1360" fill="#f57c00">Forward offer (encrypted UDP)</text>
+  </g>
+  
+  <!-- Step 7: Server sends answer -->
+  <g id="client-step7">
+    <text x="20" y="1410" font-weight="bold" fill="#388e3c">7. Server Response</text>
+    <rect x="1000" y="1420" width="180" height="40" fill="#e8f5e9" stroke="#388e3c" stroke-width="1" rx="3"/>
+    <text x="1090" y="1440" text-anchor="middle" font-size="12">Generate SDP answer</text>
+    <text x="1090" y="1455" text-anchor="middle" font-size="12">& ICE candidates</text>
+    
+    <line x1="1090" y1="1475" x2="600" y2="1475" stroke="#388e3c" stroke-width="2" marker-end="url(#arrowhead-green)"/>
+    <text x="730" y="1470" fill="#388e3c">ANSWER (encrypted: SDP, candidates, signature)</text>
+  </g>
+  
+  <!-- Step 8: Client polls for answer -->
+  <g id="client-step8">
+    <text x="20" y="1520" font-weight="bold" fill="#1976d2">8. Poll for Answer</text>
+    <line x1="110" y1="1530" x2="600" y2="1530" stroke="#1976d2" stroke-width="2" marker-end="url(#arrowhead-blue)"/>
+    <text x="250" y="1525" fill="#1976d2">POST /api/poll (sessionId)</text>
+    
+    <line x1="600" y1="1550" x2="110" y2="1550" stroke="#1976d2" stroke-width="2" marker-end="url(#arrowhead-blue)"/>
+    <text x="250" y="1545" fill="#1976d2">{SDP answer, candidates, signatures}</text>
+  </g>
+  
+  <!-- Step 9: WebRTC established -->
+  <g id="client-step9">
+    <text x="20" y="1590" font-weight="bold" fill="#666">9. WebRTC Connection</text>
+    <line x1="110" y1="1610" x2="1090" y2="1610" stroke="#9c27b0" stroke-width="3" marker-end="url(#arrowhead)" stroke-dasharray="10,5"/>
+    <text x="500" y="1605" fill="#9c27b0" font-weight="bold">Direct WebRTC Datachannel</text>
+    <text x="500" y="1625" font-size="12" fill="#666">Peer-to-peer, encrypted, no coordinator relay</text>
+  </g>
+  
+  <!-- Legend -->
+  <g id="legend">
+    <rect x="20" y="1670" width="1160" height="90" fill="#fafafa" stroke="#ccc" stroke-width="1" rx="5"/>
+    <text x="40" y="1690" font-weight="bold" fill="#333">Legend:</text>
+    
+    <line x1="40" y1="1705" x2="90" y2="1705" stroke="#1976d2" stroke-width="2" marker-end="url(#arrowhead-blue)"/>
+    <text x="100" y="1710" fill="#333">HTTPS (Client ↔ Coordinator)</text>
+    
+    <line x1="320" y1="1705" x2="370" y2="1705" stroke="#388e3c" stroke-width="2" marker-end="url(#arrowhead-green)"/>
+    <text x="380" y="1710" fill="#333">UDP (Server → Coordinator)</text>
+    
+    <line x1="600" y1="1705" x2="650" y2="1705" stroke="#f57c00" stroke-width="2" marker-end="url(#arrowhead)"/>
+    <text x="660" y="1710" fill="#333">UDP (Coordinator → Server)</text>
+    
+    <line x1="880" y1="1705" x2="930" y2="1705" stroke="#9c27b0" stroke-width="3" marker-end="url(#arrowhead)" stroke-dasharray="10,5"/>
+    <text x="940" y="1710" fill="#333">WebRTC (Direct P2P)</text>
+    
+    <text x="40" y="1735" font-size="12" fill="#666">• Binary protocol: [Version][Type][Payload]</text>
+    <text x="320" y="1735" font-size="12" fill="#666">• AES-GCM encryption after registration</text>
+    <text x="620" y="1735" font-size="12" fill="#666">• ECDSA signatures for authentication</text>
+    <text x="960" y="1735" font-size="12" fill="#666">• Source IP untrusted at HELLO stage</text>
+  </g>
+</svg>
