@@ -1,338 +1,86 @@
 # HomeChannel Copilot Instructions
 
 ## Project Overview
-HomeChannel is a minimal-dependency WebRTC datachannel solution for remote access to home systems (VNC, SSH, file access). Pure JavaScript, no transpilation or bundling.
+Minimal-dependency WebRTC datachannel solution for remote home access. Pure JavaScript, no build tools, Node.js built-ins only.
 
-## Core Principles
+**Core Principles:**
+- Pure JavaScript (ES modules/CommonJS), zero transpilation
+- Minimal dependencies, no WebSockets (HTTP/HTTPS polling)
+- Alpha status - API subject to change
 
-- **Pure JavaScript**: ES modules for client, CommonJS/ES modules for Node.js
-- **Zero Build Tools**: No transpilation, bundling, or compilation
-- **Minimal Dependencies**: Node.js built-in modules only
-- **No WebSockets**: HTTP/HTTPS polling for client-coordinator
-- **Alpha Status**: API and protocol subject to change
+**Project Structure:**
+- `client/` - Browser (vanilla JS, ES modules)
+- `server/` - Home Node.js (UDP to coordinator)
+- `coordinator/` - Public Node.js (UDP + HTTPS)
+- `docs/` - Detailed documentation
 
-## Project Structure
-
-```
-homechannel/
-├── client/          # Browser (vanilla JS, ES modules)
-├── server/          # Home Node.js (UDP to coordinator)
-├── coordinator/     # Public Node.js (UDP + HTTPS)
-└── docs/            # Detailed documentation
-```
-
-## Documentation
-
-**Refer to these files for detailed specs:**
-- `README.md` - Project overview and quick start
-- `docs/PROTOCOL.md` - Protocol specifications
-- `docs/SECURITY.md` - Security architecture
+**Reference Documentation:**
+- `docs/PROTOCOL.md` - Protocol specifications and message formats
+- `docs/SECURITY.md` - Security model and cryptography
 - `docs/ARCHITECTURE.md` - System design
-- `coordinator/README.md` - Coordinator implementation details
+- `shared/crypto.js` - Crypto implementations (AES-GCM, ECDSA, ECDH)
+- `shared/protocol.js` - Protocol helpers and UDPClient
 
-## Security Model
+## Security Essentials
 
-### Three-Party ECDSA Keys
-- **Coordinator**: Has own ECDSA key pair (trusted by both)
-- **Servers**: Identified by ECDSA public keys
-- **Client**: Verifies signatures from coordinator and server
+**Encryption:**
+- AES-256-GCM for authenticated encryption (see `shared/crypto.js`)
+- ECDSA for signatures, ECDH for key exchange
+- expectedAnswer → SHA-256 → AES key
+- Never implement custom crypto, use Node.js crypto module
 
-### Communication Security
-- **Registration**: ECDSA-signed, encrypted with ECDH shared secret
-- **Ongoing UDP**: AES-256-GCM authenticated encryption using expectedAnswer as key
-- **Challenge-Response**: Prevents brute-force and DDoS
-
-### Encryption Details
-- **AES Key**: Derived from expectedAnswer via SHA-256
-- **IV**: Random 12 bytes per message (GCM standard)
-- **Auth Tag**: 16 bytes (GCM provides both encryption and authentication)
-
-## Coordinator State
-
-Memory-compact registry:
-```javascript
-Map<serverPublicKey, {
-  ipPort: string,          // For UDP routing
-  challenge: string,       // 16 bytes hex
-  expectedAnswer: string,  // SHA-256 hash, also AES key source
-  timestamp: number        // For cleanup
-}>
-```
-
-- Periodic cleanup of expired servers
-- Separate connection log for rate limiting
-
-## Code Examples
-
-### AES-GCM Encryption
-```javascript
-function deriveAESKey(expectedAnswer) {
-  const hash = crypto.createHash('sha256');
-  hash.update(expectedAnswer);
-  return hash.digest(); // 256-bit key
-}
-
-function encryptAES(data, key) {
-  const iv = crypto.randomBytes(12);  // 12 bytes for GCM
-  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
-  const dataBuffer = Buffer.from(JSON.stringify(data), 'utf8');
-  const encrypted = Buffer.concat([cipher.update(dataBuffer), cipher.final()]);
-  const authTag = cipher.getAuthTag();  // 16 bytes authentication tag
-  return Buffer.concat([iv, authTag, encrypted]);
-}
-
-function decryptAES(encryptedBuffer, key) {
-  const iv = encryptedBuffer.slice(0, 12);
-  const authTag = encryptedBuffer.slice(12, 28);
-  const encrypted = encryptedBuffer.slice(28);
-  const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
-  decipher.setAuthTag(authTag);
-  const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
-  return JSON.parse(decrypted.toString('utf8'));
-}
-```
-
-**Note**: AES-GCM provides authenticated encryption. If decryption succeeds, message integrity is guaranteed. No separate HMAC needed.
-
-### ECDSA Signing
-
-**Binary protocol format** (avoid fingerprinting, minimize overhead):
-```
-[Version (1 byte)][Type (1 byte)][Payload]
-```
-
-**Version**: `0x01`
-
-**Message Types**:
-- `0x01` - HELLO (Phase 1: DoS prevention, 4-byte tag)
-- `0x02` - HELLO_ACK (Phase 2: Echo + coordinator tag, rate-limited)
-- `0x03` - ECDH Init (Phase 3: With coordinator tag verification)
-- `0x04` - ECDH Response (Phase 4: Coordinator's ECDH key)
-- `0x05` - Registration (Phase 5: AES-GCM encrypted)
-- `0x06` - Ping (Keepalive, no payload)
-- `0x07` - Heartbeat (AES-GCM encrypted)
-- `0x08` - Answer (AES-GCM encrypted)
-- `0xFF` - ERROR (Rate limiting/ban notification, not sent for HELLO)
-
-**HELLO** (binary payload, DoS prevention):
-```
-Format: [serverTag(4)]
-```
-Server sends 4-byte random tag. No expensive operations. **Source IP:port cannot be trusted at this stage** - only used for reply routing.
-
-**HELLO_ACK** (binary payload, rate-limited):
-```
-Format: [serverTag(4)][coordinatorTag(4)]
-```
-Coordinator echoes server's tag and sends its own 4-byte random tag. **Rate-limiting applies to replies sent**, not incoming HELLOs. No ERROR responses sent to HELLOs (prevents amplification attacks). Coordinator does not store server's tag (server will echo it back).
-
-**ECDH Init** (binary payload with tag verification):
-```
-Format: [coordinatorTag(4)][ecdhPubKeyLen(1)][ecdhPubKey]
-```
-Server includes coordinator's tag. Coordinator verifies tag before expensive ECDH operation.
-
-**ECDH Response** (binary payload with encrypted signature):
-```
-Format: [ecdhPubKeyLen(1)][ecdhPubKey][encryptedData]
-```
-Coordinator sends ECDH public key plus AES-GCM encrypted `{timestamp, signature}` using shared secret.
-
-**Registration** (AES-GCM encrypted JSON, key from ECDH shared secret):
-```javascript
-{ 
-  serverPublicKey,    // Server identity revealed only after encryption
-  timestamp, 
-  payload: { challenge, challengeAnswerHash }, 
-  signature 
-}
-```
-
-**All other messages** (AES-GCM encrypted JSON, key from expectedAnswer):
-```javascript
-{ type: 'ping' }  // Keepalive
-
-{ type: 'heartbeat', payload: {...} }  // Challenge refresh (auth via GCM)
-
-{ type: 'answer', ...payload, signature: '...' }  // SDP answer
-```
+**Critical Rules:**
+- Validate all signatures before processing
+- Timing-safe comparisons for secrets
+- Sanitize all inputs
+- File permissions 600 for private keys
+- Never commit secrets
 
 ## Coding Standards
 
-### JavaScript Style
-- Use `const` and `let`, never `var`
-- Arrow functions where appropriate
-- Template literals for strings
-- Async/await over Promises
-- Destructuring for readability
+**JavaScript:**
+- `const`/`let` (never `var`), arrow functions, template literals
+- Async/await for all I/O (❌ no sync file operations)
+- Proper error handling (try/catch), meaningful messages
+- Small focused files, descriptive names, avoid deep nesting
 
-### Error Handling
-- Always handle errors explicitly
-- Use try/catch with async/await
-- Provide meaningful error messages
-- Log appropriately
-
-### Module System
-- ES modules for client
-- ES modules or CommonJS for Node.js
-- Clear dependencies
-
-### Code Organization
-- Small, focused files
-- Separate concerns
-- Descriptive names
-- Avoid deep nesting
-
-## Security Guidelines
-
-- Never implement custom crypto
-- Use Node.js crypto module
-- Validate all signatures
-- Sanitize all inputs
-- Timing-safe comparisons for secrets
-- File permissions 600 for private keys
-
-## Performance Guidelines
-
-- Minimize memory allocation
-- Avoid unnecessary copying
-- Use streams for large data
-- Implement backpressure
-
-## Testing
-
-- Test critical paths
-- Test error conditions
-- Test crypto operations thoroughly
-- Test protocol edge cases
-- Keep tests independent
-- Mock external dependencies
+**Performance:**
+- Minimize allocations, avoid unnecessary copying
+- Use streams for large data, implement backpressure
+- No blocking operations in event loop
 
 ## Development Workflow
 
 ### Pre-Implementation Checklist
-
-Before writing any code, verify:
-- [ ] Requirements are clear and understood
-- [ ] No forbidden practices will be used (see list below)
-- [ ] Async operations will be used for all I/O (no sync file operations)
-- [ ] Only Node.js built-in modules or minimal dependencies needed
-- [ ] Security implications considered (crypto, validation, sanitization)
+- [ ] Requirements clear, no forbidden practices (see below)
+- [ ] Async operations for all I/O (no sync file ops)
+- [ ] Node.js built-ins only, minimal dependencies
+- [ ] Security considered (crypto, validation, sanitization)
 - [ ] Test strategy identified
 
-### Implementation Workflow
+### Workflow Steps
 
-1. **Create a new branch** for feature/bugfix
-   ```bash
-   git checkout -b feature/descriptive-name
-   # or
-   git checkout -b fix/descriptive-name
-   ```
+1. **Branch:** `git checkout -b feature/name` or `fix/name`
+2. **Baseline test:** `npm test` (ensure passing)
+3. **Write tests** (TDD: test critical paths, errors, edge cases)
+4. **Implement** (async/await, error handling, meaningful messages)
+5. **Test:** `npm test` (verify implementation)
+6. **Review checklist:**
+   - [ ] Tests pass, no sync file ops (fs.readFileSync, etc.)
+   - [ ] No blocking, async properly awaited
+   - [ ] Error handling, input validation/sanitization
+   - [ ] No console.log, no custom crypto
+   - [ ] Timing-safe secret comparisons, file perms 600 for keys
+   - [ ] Clear, self-documenting code
+7. **Optimize** if needed (memory, copying, backpressure)
+8. **Retest:** `npm test`
+9. **Update docs** (README, PROTOCOL, SECURITY, ARCHITECTURE as needed)
+10. **Commit:** `git commit -m "feat: description"` or `"fix: description"`
+11. **Push:** `git push origin branch-name`
+12. **PR/merge** to main
 
-2. **Run tests first** to ensure baseline passes
-   ```bash
-   npm test
-   ```
+### Quick Reference
 
-3. **Create test(s)** for the new feature/bug (TDD approach)
-   - Add test cases in appropriate `test/` directory
-   - Test critical paths and error conditions
-   - Keep tests independent and focused
+**Forbidden:** Heavy frameworks, WebSockets, build tools, TypeScript, custom crypto, secrets in commits, sync file ops, blocking event loop, console.log in production
 
-4. **Implement** the feature or fix
-   - Follow coding standards (see below)
-   - Use async/await for all I/O operations
-   - Proper error handling with try/catch
-   - Meaningful error messages
-
-5. **Run tests** to verify implementation
-   ```bash
-   npm test
-   ```
-
-6. **Code review checklist** (self-review):
-   - [ ] All tests pass
-   - [ ] No synchronous file operations (fs.readFileSync, fs.writeFileSync, etc.)
-   - [ ] No blocking operations in event loop
-   - [ ] All async operations properly awaited
-   - [ ] Error handling implemented
-   - [ ] Input validation and sanitization
-   - [ ] No console.log in production code
-   - [ ] No custom cryptography
-   - [ ] Timing-safe comparisons for secrets
-   - [ ] File permissions set to 600 for private keys
-   - [ ] Code is clear and self-documenting
-   - [ ] Follows project style guidelines
-
-7. **Optimize** if needed
-   - Check for unnecessary memory allocation
-   - Avoid unnecessary copying
-   - Implement backpressure for streams
-
-8. **Run tests again** after optimization
-   ```bash
-   npm test
-   ```
-
-9. **Update documentation**:
-   - [ ] README.md if behavior or usage changes
-   - [ ] PROTOCOL.md if protocol specifications change
-   - [ ] SECURITY.md if security model changes
-   - [ ] ARCHITECTURE.md if system design changes
-   - [ ] Code comments for complex logic
-
-10. **Final verification**:
-    ```bash
-    npm test  # All tests pass
-    ```
-
-11. **Commit** with descriptive message (conventional commits format)
-    ```bash
-    git add -A
-    git commit -m "feat: add new feature"
-    # or
-    git commit -m "fix: resolve specific bug"
-    ```
-
-12. **Push** to repository
-    ```bash
-    git push origin branch-name
-    ```
-
-13. **Create PR or merge** to main
-    - Create pull request for review
-    - Or merge directly if authorized
-
-### Best Practices
-
-- Test changes locally before committing
-- No console.log in production code (use proper logging if needed)
-- Follow style guidelines consistently
-- Keep changes focused and small
-- Update documentation with code changes
-- Write meaningful commit messages
-- Don't commit secrets or private keys
-
-## Forbidden Practices
-
-❌ Heavy frameworks (React, Vue, Angular, etc.)
-❌ WebSockets
-❌ Build tools (webpack, rollup, etc.)
-❌ TypeScript
-❌ Custom cryptography
-❌ Committing secrets
-❌ Synchronous file operations in server code
-❌ Blocking event loop
-
-## Recommended Practices
-
-✅ Node.js built-in modules
-✅ Minimal, audited dependencies
-✅ Clear, self-documenting code
-✅ Proper error handling
-✅ ECDSA for signatures
-✅ AES-GCM for authenticated encryption
-✅ Input validation and sanitization
-✅ Tests for critical functionality
-✅ Semantic versioning
-✅ Simple, maintainable code
+**Required:** Node.js built-ins, async I/O, error handling, ECDSA signatures, AES-GCM encryption, input validation, tests, semantic versioning, simple maintainable code
