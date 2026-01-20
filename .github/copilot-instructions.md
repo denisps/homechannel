@@ -210,24 +210,108 @@ Coordinator sends ECDH public key plus AES-GCM encrypted `{timestamp, signature}
 
 ## Development Workflow
 
-When making changes to code:
-1. **Run tests first**: Ensure all tests pass before making changes
-2. **Make changes**: Implement the requested modifications
-3. **Run tests again**: Verify all tests still pass after changes
-4. **Update documentation**: Keep documentation in sync with code changes
-   - Update relevant README files if behavior changes
-   - Update PROTOCOL.md if protocol changes
-   - Update SECURITY.md if security model changes
-   - Update ARCHITECTURE.md if design changes
-5. **Make a commit**: Create a descriptive commit message
-6. **Push changes**: Push to the repository
+### Pre-Implementation Checklist
 
-Best practices:
-- Test changes locally
-- No console.log in production code
-- Follow style guidelines
+Before writing any code, verify:
+- [ ] Requirements are clear and understood
+- [ ] No forbidden practices will be used (see list below)
+- [ ] Async operations will be used for all I/O (no sync file operations)
+- [ ] Only Node.js built-in modules or minimal dependencies needed
+- [ ] Security implications considered (crypto, validation, sanitization)
+- [ ] Test strategy identified
+
+### Implementation Workflow
+
+1. **Create a new branch** for feature/bugfix
+   ```bash
+   git checkout -b feature/descriptive-name
+   # or
+   git checkout -b fix/descriptive-name
+   ```
+
+2. **Run tests first** to ensure baseline passes
+   ```bash
+   npm test
+   ```
+
+3. **Create test(s)** for the new feature/bug (TDD approach)
+   - Add test cases in appropriate `test/` directory
+   - Test critical paths and error conditions
+   - Keep tests independent and focused
+
+4. **Implement** the feature or fix
+   - Follow coding standards (see below)
+   - Use async/await for all I/O operations
+   - Proper error handling with try/catch
+   - Meaningful error messages
+
+5. **Run tests** to verify implementation
+   ```bash
+   npm test
+   ```
+
+6. **Code review checklist** (self-review):
+   - [ ] All tests pass
+   - [ ] No synchronous file operations (fs.readFileSync, fs.writeFileSync, etc.)
+   - [ ] No blocking operations in event loop
+   - [ ] All async operations properly awaited
+   - [ ] Error handling implemented
+   - [ ] Input validation and sanitization
+   - [ ] No console.log in production code
+   - [ ] No custom cryptography
+   - [ ] Timing-safe comparisons for secrets
+   - [ ] File permissions set to 600 for private keys
+   - [ ] Code is clear and self-documenting
+   - [ ] Follows project style guidelines
+
+7. **Optimize** if needed
+   - Check for unnecessary memory allocation
+   - Avoid unnecessary copying
+   - Implement backpressure for streams
+
+8. **Run tests again** after optimization
+   ```bash
+   npm test
+   ```
+
+9. **Update documentation**:
+   - [ ] README.md if behavior or usage changes
+   - [ ] PROTOCOL.md if protocol specifications change
+   - [ ] SECURITY.md if security model changes
+   - [ ] ARCHITECTURE.md if system design changes
+   - [ ] Code comments for complex logic
+
+10. **Final verification**:
+    ```bash
+    npm test  # All tests pass
+    ```
+
+11. **Commit** with descriptive message (conventional commits format)
+    ```bash
+    git add -A
+    git commit -m "feat: add new feature"
+    # or
+    git commit -m "fix: resolve specific bug"
+    ```
+
+12. **Push** to repository
+    ```bash
+    git push origin branch-name
+    ```
+
+13. **Create PR or merge** to main
+    - Create pull request for review
+    - Or merge directly if authorized
+
+### Best Practices
+
+- Test changes locally before committing
+- No console.log in production code (use proper logging if needed)
+- Follow style guidelines consistently
 - Keep changes focused and small
-- Update documentation as needed
+- Update documentation with code changes
+- Write meaningful commit messages
+- Don't commit secrets or private keys
 
 ## Forbidden Practices
 
