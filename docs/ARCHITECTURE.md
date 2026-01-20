@@ -245,7 +245,24 @@ Map<clientId, Array<timestamp>>
 - Servers cannot register
 - New clients cannot connect
 - Existing dataChannels unaffected (direct P2P)
-- **Mitigation**: Monitor coordinator health
+- **Mitigation**: Coordinator migration support allows seamless failover to backup coordinator
+
+### Coordinator Migration
+
+HomeChannel supports coordinator migration for scalability and redundancy:
+
+- **Initiated by Coordinator**: Current coordinator sends MIGRATE message to server
+- **Encrypted Payload**: Contains new coordinator's host, port, and ECDSA public key
+- **Automatic Failover**: Server immediately attempts registration with new coordinator
+- **Persistent Storage**: Failover coordinator info saved to `failover-coordinator.json`
+- **Seamless Transition**: Server switches to new coordinator upon successful registration
+- **Graceful Fallback**: Migration failure does not interrupt current connection
+
+**Use Cases:**
+- Load balancing across multiple coordinators
+- Coordinator maintenance and upgrades without downtime
+- Geographic distribution of coordinator infrastructure
+- Automatic failover during coordinator issues
 
 ### Server Failure
 

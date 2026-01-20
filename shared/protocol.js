@@ -33,6 +33,7 @@ export const MESSAGE_TYPES = Object.freeze({
   PING: 0x06,           // Keepalive
   HEARTBEAT: 0x07,      // Challenge refresh
   ANSWER: 0x08,         // SDP answer
+  MIGRATE: 0x09,        // Coordinator migration (redirect to new coordinator)
   ERROR: 0xFF           // Error response (not sent for HELLO messages)
 });
 
@@ -45,6 +46,7 @@ export const MESSAGE_TYPE_NAMES = Object.freeze({
   [MESSAGE_TYPES.PING]: 'ping',
   [MESSAGE_TYPES.HEARTBEAT]: 'heartbeat',
   [MESSAGE_TYPES.ANSWER]: 'answer',
+  [MESSAGE_TYPES.MIGRATE]: 'migrate',
   [MESSAGE_TYPES.ERROR]: 'error'
 });
 
@@ -189,6 +191,9 @@ export class UDPClient {
           break;
         case MESSAGE_TYPES.HEARTBEAT:
           this.handleHeartbeat(payload);
+          break;
+        case MESSAGE_TYPES.MIGRATE:
+          this.handleMigrate(payload);
           break;
         case MESSAGE_TYPES.ERROR:
           this.handleError(payload);
@@ -506,6 +511,45 @@ export class UDPClient {
       }
     } catch (error) {
       console.error('Error handling heartbeat:', error.message);
+    }
+  }
+
+  /**
+   * Handle MIGRATE message from coordinator
+   * Coordinator requests server to migrate to a different coordinator
+   */
+  handleMigrate(payload) {
+    try {
+      if (!this.aesKey) {
+        console.error('Cannot process MIGRATE - no AES key established');
+        return;
+      }
+
+      // AES-GCM decryption automatically verifies authentication
+      const data = decryptAES(payload, this.aesKey);
+
+      if (data.type !== 'migrate') {
+        console.warn('Invalid migrate message type');
+        return;
+      }
+
+      const { host, port, publicKey } = data.payload;
+
+      if (!host || !port || !publicKey) {
+        console.error('Invalid migrate payload - missing required fields');
+        return;
+      }
+
+      console.log(`Coordinator migration requested to ${host}:${port}`);
+
+      // Emit migration event for server to handle
+      if (this.handlers.has('migrate')) {
+        this.handlers.get('migrate')({ host, port, publicKey });
+      } else {
+        console.warn('No migrate handler registered - migration ignored');
+      }
+    } catch (error) {
+      console.error('Error handling migrate message:', error.message);
     }
   }
 

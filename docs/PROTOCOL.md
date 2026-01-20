@@ -31,6 +31,7 @@ All UDP messages follow this format:
 - `0x06` - Ping (keepalive)
 - `0x07` - Heartbeat (challenge refresh)
 - `0x08` - Answer (SDP response)
+- `0x09` - Migrate (coordinator migration/failover)
 - `0xFF` - ERROR (Rate limiting, not sent for HELLO)
 
 ### Five-Phase Registration with DoS Protection
@@ -226,6 +227,40 @@ Encrypted JSON:
   signature: 'hex-encoded-ecdsa-signature'
 }
 ```
+
+### Migrate (AES-GCM Encrypted Payload)
+
+Coordinator requests server to migrate to a different coordinator:
+
+```
+Binary: [0x01][0x09][Encrypted payload]
+```
+
+Encrypted JSON:
+```javascript
+{
+  type: 'migrate',
+  payload: {
+    host: 'new-coordinator.example.com',  // or IP address
+    port: 3478,
+    publicKey: 'hex-encoded-coordinator-ecdsa-public-key'
+  }
+}
+```
+
+**Behavior**: 
+- Server receives migration request after AES-GCM key is established
+- Server saves failover coordinator info to disk (`failover-coordinator.json`)
+- Server immediately attempts to register with new coordinator
+- On successful registration, server switches to new coordinator
+- Old connection is gracefully closed
+- Migration failure does not interrupt current connection
+
+**Use Cases**:
+- Load balancing across multiple coordinators
+- Coordinator maintenance and upgrades
+- Geographic load distribution
+- Failover during coordinator issues
 
 ### ERROR (No Payload)
 

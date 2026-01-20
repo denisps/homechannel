@@ -14,6 +14,7 @@ HomeChannel enables direct peer-to-peer connections between browser clients and 
 - **Secure**: ECDSA signatures, AES-GCM authenticated encryption, challenge-response authentication
 - **Lightweight**: Memory-compact design, optimized protocol
 - **NAT-Friendly**: Efficient keepalive and NAT traversal
+- **Coordinator Migration**: Support for seamless coordinator failover and migration
 
 ## Architecture
 

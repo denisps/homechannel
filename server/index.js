@@ -1,4 +1,5 @@
 import fs from 'fs';
+import path from 'path';
 import { UDPClient } from '../shared/protocol.js';
 import { WebRTCPeer } from './webrtc.js';
 import { loadKeys, generateECDSAKeyPair, saveKeys } from '../shared/keys.js';
@@ -14,6 +15,7 @@ class Server {
     this.serverKeys = null;
     this.udpClient = null;
     this.peers = new Map(); // clientId -> WebRTCPeer
+    this.failoverCoordinator = null; // Store failover coordinator info
   }
 
   async init() {
@@ -37,6 +39,9 @@ class Server {
     // Add password to keys object for UDP client
     this.serverKeys.password = this.config.password || 'default';
 
+    // Load failover coordinator if it exists
+    this.loadFailoverCoordinator();
+
     // Initialize UDP client
     this.udpClient = new UDPClient(
       this.config.coordinator.host,
@@ -52,7 +57,47 @@ class Server {
       console.log('Server registered with coordinator');
     });
 
+    this.udpClient.on('migrate', (newCoordinator) => {
+      this.handleMigration(newCoordinator);
+    });
+
     console.log('Server initialized');
+  }
+
+  /**
+   * Load failover coordinator from disk
+   */
+  loadFailoverCoordinator() {
+    const failoverPath = 'failover-coordinator.json';
+    
+    try {
+      if (fs.existsSync(failoverPath)) {
+        const data = fs.readFileSync(failoverPath, 'utf8');
+        this.failoverCoordinator = JSON.parse(data);
+        console.log(`Loaded failover coordinator: ${this.failoverCoordinator.host}:${this.failoverCoordinator.port}`);
+      }
+    } catch (error) {
+      console.warn('Error loading failover coordinator:', error.message);
+      this.failoverCoordinator = null;
+    }
+  }
+
+  /**
+   * Save failover coordinator to disk
+   */
+  saveFailoverCoordinator() {
+    const failoverPath = 'failover-coordinator.json';
+    
+    try {
+      if (this.failoverCoordinator) {
+        fs.writeFileSync(failoverPath, JSON.stringify(this.failoverCoordinator, null, 2), {
+          mode: 0o600 // Secure permissions
+        });
+        console.log('Failover coordinator saved to disk');
+      }
+    } catch (error) {
+      console.error('Error saving failover coordinator:', error.message);
+    }
   }
 
   async start() {
@@ -84,6 +129,68 @@ class Server {
     } catch (error) {
       console.error('Error handling offer:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Handle coordinator migration request
+   * Save failover coordinator and attempt registration
+   */
+  async handleMigration(newCoordinator) {
+    try {
+      console.log(`Migration requested to ${newCoordinator.host}:${newCoordinator.port}`);
+      
+      // Save failover coordinator info
+      this.failoverCoordinator = {
+        host: newCoordinator.host,
+        port: newCoordinator.port,
+        publicKey: newCoordinator.publicKey,
+        timestamp: Date.now()
+      };
+      
+      // Persist to disk
+      this.saveFailoverCoordinator();
+      
+      console.log('Failover coordinator saved for future use');
+      
+      // Create new UDP client for migration target
+      const newUdpClient = new UDPClient(
+        newCoordinator.host,
+        newCoordinator.port,
+        this.serverKeys,
+        {
+          coordinatorPublicKey: newCoordinator.publicKey
+        }
+      );
+      
+      // Register event handlers for new client
+      newUdpClient.on('registered', () => {
+        console.log('Successfully registered with new coordinator');
+        
+        // Stop old client
+        if (this.udpClient) {
+          this.udpClient.stop().catch(err => {
+            console.error('Error stopping old UDP client:', err);
+          });
+        }
+        
+        // Switch to new client
+        this.udpClient = newUdpClient;
+        
+        // Update config for persistence
+        this.config.coordinator.host = newCoordinator.host;
+        this.config.coordinator.port = newCoordinator.port;
+        this.config.coordinator.publicKey = newCoordinator.publicKey;
+      });
+      
+      // Attempt registration with new coordinator
+      console.log('Attempting registration with new coordinator...');
+      await newUdpClient.start();
+      
+    } catch (error) {
+      console.error('Error during migration:', error);
+      console.log('Continuing with current coordinator');
+      // Don't throw - keep current connection alive on migration failure
     }
   }
 
