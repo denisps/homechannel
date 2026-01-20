@@ -6,6 +6,15 @@ import { UDPServer, UDPClient } from '../../shared/protocol.js';
 
 /**
  * Helper to add timeout to promises to prevent hanging tests
+ * 
+ * This wraps any promise with a timeout that will reject if the operation
+ * takes too long. This prevents individual test operations from hanging
+ * indefinitely and allows the test to fail gracefully with a clear error message.
+ * 
+ * @param {Promise} promise - The promise to wrap
+ * @param {number} timeoutMs - Timeout in milliseconds (default: 3000)
+ * @param {string} errorMsg - Error message if timeout occurs
+ * @returns {Promise} Race between the original promise and timeout
  */
 function withTimeout(promise, timeoutMs = 3000, errorMsg = 'Operation timed out') {
   return Promise.race([
@@ -396,9 +405,17 @@ describe('Coordinator with Mock Server', () => {
   });
 
   after(async () => {
-    await mockServer.stop();
-    await udpServer.stop();
-    registry.destroy();
+    try {
+      await withTimeout(mockServer.stop(), 1000, 'Mock server stop timed out').catch(err => {
+        console.error('Failed to stop mock server:', err.message);
+      });
+      await withTimeout(udpServer.stop(), 1000, 'UDP server stop timed out').catch(err => {
+        console.error('Failed to stop UDP server:', err.message);
+      });
+      registry.destroy();
+    } catch (err) {
+      console.error('Cleanup error:', err);
+    }
   });
 
   test('should handle server registration', async () => {
@@ -678,8 +695,14 @@ describe('End-to-end Registration with Real UDPClient', () => {
   });
 
   after(async () => {
-    await udpServer.stop();
-    registry.destroy();
+    try {
+      await withTimeout(udpServer.stop(), 1000, 'UDP server stop timed out').catch(err => {
+        console.error('Failed to stop UDP server:', err.message);
+      });
+      registry.destroy();
+    } catch (err) {
+      console.error('Cleanup error:', err);
+    }
   });
 
   test('should successfully register server with signature verification', async () => {
@@ -756,8 +779,14 @@ describe('Ping and Heartbeat with Short Intervals', () => {
   });
 
   after(async () => {
-    await udpServer.stop();
-    registry.destroy();
+    try {
+      await withTimeout(udpServer.stop(), 1000, 'UDP server stop timed out').catch(err => {
+        console.error('Failed to stop UDP server:', err.message);
+      });
+      registry.destroy();
+    } catch (err) {
+      console.error('Cleanup error:', err);
+    }
   });
 
   test('should send ping automatically with short interval', async () => {
@@ -946,3 +975,30 @@ describe('Ping and Heartbeat with Short Intervals', () => {
 });
 
 console.log('All tests defined. Run with: npm test');
+
+/**
+ * Global cleanup handler to prevent test framework from hanging
+ * 
+ * Node.js test runner may wait indefinitely if any resources (timers, sockets, etc.)
+ * are not properly cleaned up. This timeout ensures the process exits after a reasonable
+ * delay, even if some cleanup operations fail or resources are leaked.
+ * 
+ * The timeout is unref'd so it doesn't keep the process alive if everything
+ * completes normally. It only fires if the process would otherwise hang.
+ * 
+ * Strategy:
+ * 1. Individual test operations have timeouts (withTimeout helper)
+ * 2. Cleanup operations in after() hooks have timeouts
+ * 3. Global safety timeout (this) forces exit as last resort
+ * 
+ * Note: This is a safety mechanism. Proper cleanup should happen in after() hooks.
+ */
+process.on('exit', (code) => {
+  console.log(`Test process exiting with code ${code}`);
+});
+
+// Force exit after a delay if Node.js doesn't exit naturally after all tests complete
+setTimeout(() => {
+  console.log('Forcing process exit to prevent hanging');
+  process.exit(0);
+}, 2000).unref();

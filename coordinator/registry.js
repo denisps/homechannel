@@ -15,7 +15,7 @@ export class ServerRegistry {
     // Start periodic cleanup
     this.cleanupInterval = setInterval(() => {
       this.cleanup();
-    }, 60000); // Every minute
+    }, 60000).unref(); // Every minute, unref so it doesn't keep event loop alive
   }
 
   /**

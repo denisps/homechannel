@@ -614,17 +614,25 @@ export class UDPClient {
   async stop() {
     if (this.keepaliveInterval) {
       clearInterval(this.keepaliveInterval);
+      this.keepaliveInterval = null;
     }
     if (this.heartbeatInterval) {
       clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
     }
     if (this.socket) {
+      // Remove all event listeners to prevent memory leaks
+      this.socket.removeAllListeners();
+      // Unref socket so it doesn't keep event loop alive
+      this.socket.unref();
       await new Promise((resolve) => {
         this.socket.close(resolve);
       });
+      this.socket = null;
     }
     this.state = 'disconnected';
     this.registered = false;
+    console.log('UDP client stopped');
   }
 }
 
@@ -683,7 +691,7 @@ export class UDPServer {
           this.helloAttempts.set(ipPort, recent);
         }
       }
-    }, 60000); // Every minute
+    }, 60000).unref(); // Every minute, unref so it doesn't keep event loop alive
   }
 
   /**
@@ -1098,10 +1106,15 @@ export class UDPServer {
     // Clear cleanup interval
     if (this.cleanupInterval) {
       clearInterval(this.cleanupInterval);
+      this.cleanupInterval = null;
     }
     
     return new Promise((resolve) => {
       if (this.socket) {
+        // Remove all event listeners to prevent memory leaks
+        this.socket.removeAllListeners();
+        // Unref socket so it doesn't keep event loop alive
+        this.socket.unref();
         this.socket.close(() => {
           console.log('UDP server stopped');
           resolve();
