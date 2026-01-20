@@ -1,4 +1,5 @@
 import fs from 'fs';
+import { promises as fsPromises } from 'fs';
 import path from 'path';
 import { UDPClient } from '../shared/protocol.js';
 import { WebRTCPeer } from './webrtc.js';
@@ -40,7 +41,7 @@ class Server {
     this.serverKeys.password = this.config.password || 'default';
 
     // Load failover coordinator if it exists
-    this.loadFailoverCoordinator();
+    await this.loadFailoverCoordinator();
 
     // Initialize UDP client
     this.udpClient = new UDPClient(
@@ -67,17 +68,17 @@ class Server {
   /**
    * Load failover coordinator from disk
    */
-  loadFailoverCoordinator() {
+  async loadFailoverCoordinator() {
     const failoverPath = 'failover-coordinator.json';
     
     try {
-      if (fs.existsSync(failoverPath)) {
-        const data = fs.readFileSync(failoverPath, 'utf8');
-        this.failoverCoordinator = JSON.parse(data);
-        console.log(`Loaded failover coordinator: ${this.failoverCoordinator.host}:${this.failoverCoordinator.port}`);
-      }
+      const data = await fsPromises.readFile(failoverPath, 'utf8');
+      this.failoverCoordinator = JSON.parse(data);
+      console.log(`Loaded failover coordinator: ${this.failoverCoordinator.host}:${this.failoverCoordinator.port}`);
     } catch (error) {
-      console.warn('Error loading failover coordinator:', error.message);
+      if (error.code !== 'ENOENT') {
+        console.warn('Error loading failover coordinator:', error.message);
+      }
       this.failoverCoordinator = null;
     }
   }
@@ -85,14 +86,18 @@ class Server {
   /**
    * Save failover coordinator to disk
    */
-  saveFailoverCoordinator() {
+  async saveFailoverCoordinator() {
     const failoverPath = 'failover-coordinator.json';
     
     try {
       if (this.failoverCoordinator) {
-        fs.writeFileSync(failoverPath, JSON.stringify(this.failoverCoordinator, null, 2), {
-          mode: 0o600 // Secure permissions
-        });
+        await fsPromises.writeFile(
+          failoverPath,
+          JSON.stringify(this.failoverCoordinator, null, 2),
+          {
+            mode: 0o600 // Secure permissions
+          }
+        );
         console.log('Failover coordinator saved to disk');
       }
     } catch (error) {
@@ -149,7 +154,7 @@ class Server {
       };
       
       // Persist to disk
-      this.saveFailoverCoordinator();
+      await this.saveFailoverCoordinator();
       
       console.log('Failover coordinator saved for future use');
       
@@ -164,18 +169,24 @@ class Server {
       );
       
       // Register event handlers for new client
-      newUdpClient.on('registered', () => {
+      newUdpClient.on('registered', async () => {
         console.log('Successfully registered with new coordinator');
         
-        // Stop old client
-        if (this.udpClient) {
-          this.udpClient.stop().catch(err => {
-            console.error('Error stopping old UDP client:', err);
-          });
-        }
+        // Stop and dispose old client
+        const oldClient = this.udpClient;
         
-        // Switch to new client
+        // Switch to new client immediately
         this.udpClient = newUdpClient;
+        
+        // Stop old client after switching
+        if (oldClient && oldClient !== newUdpClient) {
+          try {
+            await oldClient.stop();
+            console.log('Old UDP client stopped and disposed');
+          } catch (err) {
+            console.error('Error stopping old UDP client:', err);
+          }
+        }
         
         // Update config for persistence
         this.config.coordinator.host = newCoordinator.host;
@@ -217,7 +228,8 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   // Load config
   let config;
   try {
-    config = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
+    const configData = await fsPromises.readFile('./config.json', 'utf8');
+    config = JSON.parse(configData);
   } catch (error) {
     console.error('Error loading config:', error);
     console.error('Make sure config.json exists in the server directory');
