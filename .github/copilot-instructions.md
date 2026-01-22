@@ -49,6 +49,15 @@ Minimal-dependency WebRTC datachannel solution for remote home access. Pure Java
 - Use streams for large data, implement backpressure
 - No blocking operations in event loop
 
+**SVG/XML:**
+- Always escape special characters in SVG text content:
+  - `&` → `&amp;`
+  - `<` → `&lt;`
+  - `>` → `&gt;`
+  - `"` → `&quot;`
+  - `'` → `&apos;`
+- Validate SVG files load correctly in browsers
+
 ## Development Workflow
 
 ### Pre-Implementation Checklist
