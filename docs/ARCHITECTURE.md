@@ -8,34 +8,76 @@ HomeChannel's three-component architecture enables direct peer-to-peer connectio
 
 **Runtime**: Browser (vanilla JavaScript, ES modules)
 
+**Architecture**: Two-component sandboxed design
+- **Coordinator Iframe**: Isolated iframe handles API calls to coordinator
+- **App Page**: Main application manages security-critical operations
+
+#### Coordinator Iframe
+
 **Responsibilities**:
-- WebRTC connection initiation (creates offer)
-- Gathers all ICE candidates before sending
+- API calls to coordinator (HTTPS only, no WebSockets, no long-polling)
+- Simple request/response operations
+- PostMessage communication with app page
+- User interaction during connection establishment (captcha, ads)
+
+**Implementation**:
+- Self-contained single HTML file with embedded scripts, styles, and SVG images
+- Visible during datachannel establishment
+- May display captcha challenge for anti-abuse
+- May display advertisements (coordinator monetization)
+- Deleted after successful datachannel connection
+- Recreated on connection failure for reconnection
+
+**Lifecycle**:
+1. Created when connection needed
+2. Visible during WebRTC signaling
+3. Deleted after datachannel established
+4. Recreated if connection breaks (network issues)
+
+**Sandboxing**:
+- Runs in separate iframe for security isolation
+- Cannot access app page's sensitive data
+- Limited scope: coordinator communication only
+
+#### App Page
+
+**Responsibilities**:
+- Verifies server's ECDSA signing key
+- Prompts user for password
 - Computes challenge answer from password
-- Verifies ECDSA signatures from coordinator and server
+- Handles all WebRTC operations (creates offer, gathers ICE candidates)
 - Establishes direct datachannel with server
+- Receives messages from coordinator iframe via postMessage
+- Maintains datachannel connection after iframe deletion
+- Handles connection recovery (recreates iframe when needed)
+
+**Implementation**:
+- Self-contained single HTML file with embedded scripts, styles, and SVG images
+- No external dependencies (scripts, styles, images all embedded)
+- Can be attested via cryptographic hash verification
+
+**Hosting Options**:
+- Hosted on same site as coordinator iframe (convenience)
+- Local HTML file (for attestation and security verification purposes)
 
 **Communication**:
-- HTTPS polling to coordinator (no WebSockets)
-- Direct WebRTC datachannel to server
+- PostMessage with coordinator iframe (during setup)
+- Direct WebRTC datachannel to server (after setup)
 
 **Key Files**:
-- `/client/index.html` - Main UI
-- `/client/js/main.js` - Application entry point
-- `/client/js/webrtc.js` - WebRTC connection management
-- `/client/js/crypto.js` - ECDSA verification, challenge answer
-- `/client/js/api.js` - HTTPS polling to coordinator
-- `/client/js/config.js` - Coordinator + server keys
+- `/client/index.html` - Main app page (self-contained)
+- `/client/iframe.html` - Coordinator iframe (self-contained)
 
 ### Server (Home Node.js)
 
 **Runtime**: Node.js (home network)
 
 **Responsibilities**:
-- Initiates UDP connection to coordinator
+- Initiates UDP connection to coordinator (binary protocol)
+- Performs 5-phase registration with ECDH key exchange
 - Generates challenge for client authentication
 - Signs all payloads with ECDSA private key
-- Sends AES-GCM encrypted messages to coordinator
+- Sends AES-GCM encrypted messages to coordinator (after registration)
 - WebRTC peer connection handling (creates answer)
 - Gathers all ICE candidates before sending
 - Local service proxying (VNC, SSH, files)
@@ -57,13 +99,15 @@ HomeChannel's three-component architecture enables direct peer-to-peer connectio
 **Runtime**: Node.js (public server)
 
 **Responsibilities**:
-- Server registration and management
+- Handles 5-phase server registration (binary protocol)
+- DoS protection via tag-based handshake before ECDH
+- Performs ECDH key exchange with servers
 - Verifies server ECDSA signatures
-- Stores challenges and expectedAnswer
+- Stores challenges and expectedAnswer (derived from ECDH)
 - Verifies client challenge answers
 - Relays signed payloads between client and server
-- Periodic UDP exchange with servers
-- Challenge refresh management
+- Optimized UDP keepalive (no-payload pings)
+- Challenge refresh via encrypted heartbeat
 - AES-GCM encryption/decryption
 
 **Communication**:
@@ -86,99 +130,73 @@ HomeChannel's three-component architecture enables direct peer-to-peer connectio
 
 ### Server Registration
 
-```
-Server                    Coordinator
-  │                           │
-  │──register (ECDSA-signed)─→│
-  │   (unencrypted)           │
-  │                           │ Verify signature
-  │                           │ Store challenge, expectedAnswer
-  │                           │ Register IP:port
-  │←─────── OK ──────────────│
-  │                           │
-```
+![Server Registration](server-registration.svg)
+
+*Simplified view. Full registration uses 5-phase binary protocol with DoS protection and ECDH key exchange. See [PROTOCOL.md](PROTOCOL.md) for complete details.*
 
 ### Client Connection
 
-```
-Client          Coordinator          Server
-  │                  │                  │
-  │──get challenge──→│                  │
-  │←─────────────────│                  │
-  │                  │                  │
-  │ Compute answer   │                  │
-  │ Gather ICE       │                  │
-  │                  │                  │
-  │──offer+answer───→│                  │
-  │                  │ Verify answer    │
-  │                  │──relay (AES)────→│
-  │                  │                  │ Gather ICE
-  │                  │                  │ Create answer
-  │                  │←─answer (AES)────│
-  │←─────────────────│                  │
-  │                  │                  │
-  │════════ WebRTC Datachannel ════════│
-  │                  │                  │
-```
+![Client Connection](client-connection.svg)
+
+*Shows iframe lifecycle and WebRTC establishment. All coordinator communication uses HTTPS API calls. See [PROTOCOL.md](PROTOCOL.md) for message formats.*
 
 ### Keepalive
 
-```
-Server                    Coordinator
-  │                           │
-  │──ping (AES-encrypted)────→│
-  │   every 30s               │ Update timestamp
-  │                           │
-  │──heartbeat (AES-GCM)────→│
-  │   every 10 min            │ Decrypt & verify
-  │                           │ Update challenge
-  │                           │
-```
+![Keepalive](keepalive.svg)
+
+*Ping messages (every 30s) have no payload for minimal overhead. Heartbeat messages (every 10 min) are AES-GCM encrypted for challenge refresh. See [PROTOCOL.md](PROTOCOL.md) for binary format.*
 
 ## Coordinator State
 
 Memory-compact registry design:
 
 ```javascript
+// Active servers (post-registration)
 Map<serverPublicKey, {
   ipPort: string,              // For UDP message routing
   challenge: string,           // Current challenge (16 bytes hex)
-  expectedAnswer: string,      // SHA-256 hash for verification
+  expectedAnswer: string,      // SHA-256 hash for AES-GCM key
   timestamp: number            // Last activity (for cleanup)
 }>
 
-// Separate connection log for rate limiting
-Map<clientId, Array<timestamp>>
+// Temporary ECDH sessions during registration
+Map<ipPort, {
+  coordinatorTag: Buffer,      // For Phase 3 verification
+  ecdhPrivateKey: Buffer,      // Ephemeral ECDH private key
+  serverEcdhPublicKey: Buffer, // From Phase 3
+  timestamp: number            // For cleanup
+}>
+
+// Rate limiting per source IP
+Map<sourceIP, {
+  helloAckCount: number,       // HELLO_ACK responses sent
+  lastReset: number            // Window timestamp
+}>
 ```
 
 **Properties**:
-- ~150 bytes per server
-- O(1) lookup by public key
-- O(1) lookup by IP:port (linear scan, acceptable for < 10K servers)
+- ~150 bytes per registered server
+- ~200 bytes per active registration (temporary)
+- O(1) lookup by public key or IP:port
 - Periodic cleanup removes expired entries
 - No persistent storage required
+- Rate limiting prevents DoS on expensive operations
 
 ## Protocol Layers
 
 ### Layer 1: Transport
-- UDP for server-coordinator (low latency, NAT-friendly)
-- HTTPS for client-coordinator (firewall-friendly)
-- WebRTC for client-server (direct P2P)
+- **Binary UDP** for server-coordinator (low latency, NAT-friendly, minimal fingerprinting)
+- **HTTPS** for client iframe-coordinator (firewall-friendly, no WebSockets, no long-polling)
+- **PostMessage** for iframe-app page (browser security boundary)
+- **WebRTC** for client-server (direct P2P with DTLS)
 
-### Layer 2: Encryption
-- AES-256-GCM for UDP messages (after registration)
-- TLS for HTTPS (standard browser behavior)
-- DTLS for WebRTC (automatic)
+### Layer 2: Security
+- **ECDH** for key exchange during registration
+- **AES-256-GCM** for authenticated encryption (post-registration)
+- **ECDSA P-256** for signatures
+- **Challenge-response** for client authorization
 
-### Layer 3: Authentication
-- ECDSA P-256 signatures
-- AES-GCM authenticated encryption
-- Challenge-response for authorization
-
-### Layer 4: Application
-- JSON message format
-- Session management
-- Service multiplexing
+*See [SECURITY.md](SECURITY.md) for complete security architecture and [PROTOCOL.md](PROTOCOL.md) for message formats.*
 
 ## Design Decisions
 
@@ -189,26 +207,30 @@ Map<clientId, Array<timestamp>>
 - **Simplicity**: No connection state to manage
 - **Efficiency**: Minimal protocol overhead
 
-### Why HTTPS Polling for Client-Coordinator?
+### Why HTTPS API Calls for Client-Coordinator?
 
 - **Firewall Friendly**: Works everywhere HTTP works
-- **No WebSocket**: Simpler implementation
+- **No WebSocket**: Simpler implementation, no persistent connections
+- **No Long-Polling**: Simple request/response pattern
+- **Iframe Isolation**: Sandboxes coordinator communication
+- **Simple**: Standard fetch API in browser
 - **Stateless**: No connection state on coordinator
-- **Simple**: Standard HTTP client libraries
 
 ### Why Not WebSockets?
 
 - **Complexity**: Additional protocol layer
 - **State**: Connection state on server
-- **Overkill**: Polling sufficient for signaling
+- **Overkill**: Simple API calls sufficient for signaling
 - **Constraints**: Project goal is minimal dependencies
+- **Security**: Iframe isolation simpler with request/response pattern
 
-### Why AES-CTR?
+### Why Binary UDP Protocol?
 
-- **Stream Cipher**: No padding required
-- **Efficiency**: Fast encryption/decryption
-- **Random IV**: Prevents pattern analysis
-- **Standard**: Well-supported in Node.js crypto
+- **Minimal Fingerprinting**: No plaintext, harder to identify
+- **Efficiency**: Compact binary format reduces bandwidth
+- **DoS Protection**: Tag-based handshake before expensive operations
+- **Performance**: Single-byte opcodes, no parsing overhead
+- **NAT-Friendly**: UDP works well with NAT hole-punching
 
 ### Why Memory-Compact Registry?
 
@@ -216,6 +238,19 @@ Map<clientId, Array<timestamp>>
 - **Simplicity**: No database required
 - **Speed**: In-memory lookups
 - **Cleanup**: Automatic expiry handling
+
+### Why Iframe Sandboxing for Client?
+
+- **Security Isolation**: Coordinator communication code runs in separate context
+- **Reduced Attack Surface**: Main app never directly contacts coordinator
+- **Attestation**: App page can be served from local file for verification
+- **Trust Boundary**: Clear separation between trusted (app) and untrusted (coordinator) code
+- **PostMessage API**: Browser-native secure communication mechanism
+- **Flexibility**: App page can be self-hosted or loaded locally without affecting coordinator access
+- **Lifecycle Management**: Iframe deleted after connection, minimizing attack window
+- **Connection Recovery**: Iframe recreated only when needed for reconnection
+- **Self-Contained**: Both files are single HTML with embedded resources (no external dependencies)
+- **Monetization**: Iframe can display ads/captcha without compromising app security
 
 ## Performance Characteristics
 
@@ -234,9 +269,10 @@ Map<clientId, Array<timestamp>>
 
 ### Client
 
-- **Memory**: Minimal (single connection state)
-- **CPU**: Low (signature verification)
-- **Network**: Long-polling (minimal overhead)
+- **Memory**: Minimal (single connection state, iframe lifecycle)
+- **CPU**: Low (signature verification in app page)
+- **Network**: Simple HTTPS API calls (no persistent connections)
+- **Isolation**: Iframe sandboxing for coordinator communication
 
 ## Failure Modes
 
@@ -276,6 +312,7 @@ HomeChannel supports coordinator migration for scalability and redundancy:
 - UDP keepalive fails
 - Server re-registers when network recovers
 - Challenge reset on re-registration
+- **Client**: Datachannel breaks, app recreates iframe and reestablishes connection
 - **Mitigation**: Exponential backoff retry
 
 ## Future Enhancements
