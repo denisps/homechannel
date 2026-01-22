@@ -3,6 +3,30 @@ import path from 'path';
 import { constants } from 'fs';
 
 /**
+ * Custom error classes for file operations
+ */
+class PathTraversalError extends Error {
+  constructor(message = 'Path traversal not allowed') {
+    super(message);
+    this.name = 'PathTraversalError';
+  }
+}
+
+class AccessDeniedError extends Error {
+  constructor(message = 'Access denied') {
+    super(message);
+    this.name = 'AccessDeniedError';
+  }
+}
+
+class NotAFileError extends Error {
+  constructor(message = 'Not a file') {
+    super(message);
+    this.name = 'NotAFileError';
+  }
+}
+
+/**
  * File Service for HomeChannel Server
  * Provides secure file operations over datachannel
  */
@@ -19,12 +43,15 @@ export class FileService {
    * Validate path is within allowed directories and has no traversal attacks
    */
   validatePath(requestedPath) {
-    // Check for path traversal attempts before resolving
+    // Check for path traversal attempts before normalization
+    // This catches literal '..' in the path
     if (requestedPath.includes('..')) {
-      throw new Error('Path traversal not allowed');
+      throw new PathTraversalError();
     }
 
-    const resolved = path.resolve(requestedPath);
+    // Normalize to handle encoded sequences and resolve the path
+    const normalized = path.normalize(requestedPath);
+    const resolved = path.resolve(normalized);
 
     // Ensure path is within allowed directories
     const isAllowed = this.allowedDirs.some(allowedDir => {
@@ -32,7 +59,7 @@ export class FileService {
     });
 
     if (!isAllowed) {
-      throw new Error('Access denied: path outside allowed directories');
+      throw new AccessDeniedError('Access denied: path outside allowed directories');
     }
 
     return resolved;
@@ -126,7 +153,7 @@ export class FileService {
     const targetPath = this.validatePath(params.path);
     const { content, encoding = 'utf8' } = params;
 
-    if (!content && content !== '') {
+    if (content === undefined || content === null) {
       throw new Error('Content is required');
     }
 
@@ -169,7 +196,7 @@ export class FileService {
       const stats = await fsPromises.stat(targetPath);
       
       if (!stats.isFile()) {
-        throw new Error('Not a file');
+        throw new NotAFileError();
       }
 
       await fsPromises.unlink(targetPath);
@@ -179,12 +206,12 @@ export class FileService {
         throw new Error('File not found');
       }
       if (error.code === 'EACCES') {
-        throw new Error('Access denied');
+        throw new AccessDeniedError();
       }
-      // Re-throw validation errors and "Not a file" errors
-      if (error.message === 'Not a file' || 
-          error.message === 'Path traversal not allowed' ||
-          error.message.startsWith('Access denied:')) {
+      // Re-throw custom errors
+      if (error instanceof PathTraversalError || 
+          error instanceof AccessDeniedError || 
+          error instanceof NotAFileError) {
         throw error;
       }
       throw new Error(`Failed to delete file: ${error.message}`);

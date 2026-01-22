@@ -83,24 +83,34 @@ export class WebRTCPeer {
    * Handle incoming message from datachannel
    */
   async handleDataChannelMessage(message) {
+    let parsedMessage;
+    
     try {
-      const parsedMessage = typeof message === 'string' ? JSON.parse(message) : message;
-      
-      if (!this.serviceRouter) {
-        return {
-          requestId: parsedMessage.requestId,
-          success: false,
-          error: 'Service router not configured'
-        };
-      }
-
-      const response = await this.serviceRouter.handleMessage(parsedMessage);
-      return response;
+      parsedMessage = typeof message === 'string' ? JSON.parse(message) : message;
     } catch (error) {
       return {
         requestId: null,
         success: false,
-        error: 'Invalid message format'
+        error: 'Invalid JSON format'
+      };
+    }
+
+    if (!this.serviceRouter) {
+      return {
+        requestId: parsedMessage.requestId,
+        success: false,
+        error: 'Service router not configured'
+      };
+    }
+
+    try {
+      const response = await this.serviceRouter.handleMessage(parsedMessage);
+      return response;
+    } catch (error) {
+      return {
+        requestId: parsedMessage.requestId || null,
+        success: false,
+        error: 'Internal server error'
       };
     }
   }
