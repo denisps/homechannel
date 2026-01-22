@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HomeChannel Coordinator</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      color: #fff;
+    }
+    
+    .container {
+      text-align: center;
+      padding: 2rem;
+      max-width: 500px;
+    }
+    
+    .logo {
+      width: 80px;
+      height: 80px;
+      margin: 0 auto 1.5rem;
+    }
+    
+    h1 {
+      font-size: 1.8rem;
+      margin-bottom: 0.5rem;
+      font-weight: 600;
+    }
+    
+    .status {
+      font-size: 1rem;
+      opacity: 0.9;
+      margin-bottom: 2rem;
+    }
+    
+    .spinner {
+      width: 50px;
+      height: 50px;
+      margin: 2rem auto;
+      border: 4px solid rgba(255, 255, 255, 0.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    
+    .error {
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 8px;
+      padding: 1rem;
+      margin-top: 1rem;
+      font-size: 0.9rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <svg class="logo" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="50" cy="50" r="45" fill="none" stroke="#fff" stroke-width="3"/>
+      <path d="M30 50 L50 30 L70 50 L50 70 Z" fill="#fff" opacity="0.9"/>
+      <circle cx="50" cy="50" r="8" fill="#667eea"/>
+    </svg>
+    
+    <h1>HomeChannel</h1>
+    <div class="status" id="status">Connecting to coordinator...</div>
+    <div class="spinner" id="spinner"></div>
+    <div class="error" id="error" style="display: none;"></div>
+  </div>
+  
+  <script>
+    (function() {
+      'use strict';
+      
+      const statusEl = document.getElementById('status');
+      const errorEl = document.getElementById('error');
+      const spinnerEl = document.getElementById('spinner');
+      
+      // Get coordinator URL from iframe src
+      const coordinatorUrl = new URL(window.location.href).origin;
+      
+      /**
+       * Update status message
+       */
+      function updateStatus(message) {
+        statusEl.textContent = message;
+      }
+      
+      /**
+       * Show error
+       */
+      function showError(message) {
+        errorEl.textContent = message;
+        errorEl.style.display = 'block';
+        spinnerEl.style.display = 'none';
+      }
+      
+      /**
+       * Make API call to coordinator
+       */
+      async function apiCall(endpoint, data = null) {
+        try {
+          const options = {
+            method: data ? 'POST' : 'GET',
+            headers: {
+              'Content-Type': 'application/json'
+            }
+          };
+          
+          if (data) {
+            options.body = JSON.stringify(data);
+          }
+          
+          const response = await fetch(`${coordinatorUrl}${endpoint}`, options);
+          
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          }
+          
+          return await response.json();
+        } catch (error) {
+          throw new Error(`API call failed: ${error.message}`);
+        }
+      }
+      
+      /**
+       * Handle requests from parent window
+       */
+      window.addEventListener('message', async (event) => {
+        // In production, verify event.origin against expected parent origin
+        
+        const { type, requestId, method, params } = event.data;
+        
+        if (type !== 'request') {
+          return;
+        }
+        
+        try {
+          let result;
+          
+          switch (method) {
+            case 'getCoordinatorKey':
+              updateStatus('Getting coordinator key...');
+              result = await apiCall('/api/coordinator-key');
+              break;
+              
+            case 'getServerInfo':
+              updateStatus('Checking server status...');
+              const serversResponse = await apiCall('/api/servers', {
+                serverPublicKeys: [params.serverPublicKey]
+              });
+              
+              if (!serversResponse.servers || serversResponse.servers.length === 0) {
+                throw new Error('Server not found');
+              }
+              
+              result = serversResponse.servers[0];
+              break;
+              
+            case 'connect':
+              updateStatus('Sending connection request...');
+              result = await apiCall('/api/connect', {
+                serverPublicKey: params.serverPublicKey,
+                challengeAnswer: params.challengeAnswer,
+                payload: params.payload,
+                timestamp: Date.now()
+              });
+              break;
+              
+            case 'poll':
+              updateStatus('Waiting for server response...');
+              result = await apiCall('/api/poll', {
+                sessionId: params.sessionId,
+                lastUpdate: params.lastUpdate
+              });
+              break;
+              
+            default:
+              throw new Error(`Unknown method: ${method}`);
+          }
+          
+          // Send success response
+          event.source.postMessage({
+            type: 'response',
+            requestId,
+            data: result
+          }, event.origin);
+          
+        } catch (error) {
+          // Send error response
+          event.source.postMessage({
+            type: 'response',
+            requestId,
+            error: error.message
+          }, event.origin);
+          
+          showError(error.message);
+        }
+      });
+      
+      // Initial status
+      updateStatus('Ready to connect');
+      spinnerEl.style.display = 'none';
+      
+      // Notify parent that iframe is ready
+      if (window.parent !== window) {
+        window.parent.postMessage({ type: 'ready' }, '*');
+      }
+    })();
+  </script>
+</body>
+</html>
