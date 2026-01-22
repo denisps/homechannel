@@ -4,6 +4,7 @@ import path from 'path';
 import { UDPClient } from '../shared/protocol.js';
 import { WebRTCPeer } from './webrtc.js';
 import { loadKeys, generateECDSAKeyPair, saveKeys } from '../shared/keys.js';
+import { ServiceRouter } from './services/index.js';
 
 /**
  * HomeChannel Server
@@ -17,6 +18,7 @@ class Server {
     this.udpClient = null;
     this.peers = new Map(); // clientId -> WebRTCPeer
     this.failoverCoordinator = null; // Store failover coordinator info
+    this.serviceRouter = null; // Service router for datachannel messages
   }
 
   async init() {
@@ -42,6 +44,9 @@ class Server {
 
     // Load failover coordinator if it exists
     await this.loadFailoverCoordinator();
+
+    // Initialize service router
+    this.serviceRouter = new ServiceRouter(this.config.services || {});
 
     // Initialize UDP client
     this.udpClient = new UDPClient(
@@ -120,7 +125,7 @@ class Server {
     try {
       // Create or reuse peer connection
       if (!this.peers.has(clientId)) {
-        const peer = new WebRTCPeer();
+        const peer = new WebRTCPeer({ serviceRouter: this.serviceRouter });
         this.peers.set(clientId, peer);
       }
 

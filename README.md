@@ -44,15 +44,42 @@ cd homechannel
 cd coordinator
 # Edit config.json with your settings
 npm test  # Verify installation
-npm start
+node index.js
 
 # Set up server (on home network)
 cd ../server
-# Configure server (coming soon)
+# Copy and edit config.example.json to config.json
+npm test  # Verify installation
+node index.js
 
 # Access client
-# Open client/index.html in browser (coming soon)
+# Open client/apps/filebrowser.html in your browser
 ```
+
+### Example Usage
+
+**1. Start Coordinator (Public Server)**
+```bash
+cd coordinator
+node index.js
+# Coordinator listens on UDP port 3478 and HTTPS port 8443
+```
+
+**2. Start Server (Home Network)**
+```bash
+cd server
+# Edit config.json with your coordinator URL and password
+node index.js
+# Server registers with coordinator and waits for connections
+```
+
+**3. Connect with File Browser (Browser)**
+- Open `client/apps/filebrowser.html` in your browser
+- Enter coordinator URL: `https://your-coordinator:8443`
+- Enter server public key (shown in server logs)
+- Enter password (same as in server config)
+- Click "Connect"
+- Browse, upload, download files on your home network
 
 ## Security Model
 
@@ -78,12 +105,20 @@ See [PROTOCOL.md](docs/PROTOCOL.md) for detailed specifications.
 
 ## Documentation
 
+### Architecture & Protocol
+- [ARCHITECTURE.md](docs/ARCHITECTURE.md) - System design and components
 - [PROTOCOL.md](docs/PROTOCOL.md) - Detailed protocol specifications
 - [SECURITY.md](docs/SECURITY.md) - Security architecture and cryptography
-- [ARCHITECTURE.md](docs/ARCHITECTURE.md) - System design and components
-- [shared/crypto.js](shared/crypto.js) - Shared crypto primitives (ECDSA, ECDH, AES-GCM)
-- [shared/protocol.js](shared/protocol.js) - Shared protocol constants and UDP framing helpers
+
+### Component Documentation
 - [coordinator/README.md](coordinator/README.md) - Coordinator implementation
+- [server/FILE_SERVICE.md](server/FILE_SERVICE.md) - File service API
+- [client/README.md](client/README.md) - Client API reference
+- [client/apps/README.md](client/apps/README.md) - File Browser app guide
+
+### Code Reference
+- [shared/crypto.js](shared/crypto.js) - Crypto primitives (ECDSA, ECDH, AES-GCM)
+- [shared/protocol.js](shared/protocol.js) - Protocol constants and UDP helpers
 - [.github/copilot-instructions.md](.github/copilot-instructions.md) - Development guidelines
 
 ## Development
@@ -101,8 +136,9 @@ npm test
 cd ../server
 npm test
 
-# Run in watch mode
-npm run test:watch
+# Run client tests
+cd ../client
+npm test
 ```
 
 **Technology Constraints:**
@@ -119,12 +155,16 @@ npm run test:watch
 
 - [x] Coordinator implementation with tests
 - [x] AES-GCM authenticated encryption for UDP communication
-- [ ] Server implementation
-- [ ] Client implementation
-- [ ] HTTPS endpoints for client-coordinator communication
-- [ ] End-to-end integration tests
-- [ ] Documentation and examples
+- [x] Server implementation with WebRTC support
+- [x] Client API (browser ES modules)
+- [x] HTTPS endpoints for client-coordinator communication
+- [x] File service API for remote file access
+- [x] File Browser web application
+- [x] Comprehensive test coverage
+- [x] Documentation and examples
+- [ ] Additional service types (VNC, SSH)
 - [ ] Performance optimizations
+- [ ] Multi-coordinator redundancy
 
 ## Contributing
 

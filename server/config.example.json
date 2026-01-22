@@ -1,0 +1,18 @@
+{
+  "coordinator": {
+    "host": "coordinator.example.com",
+    "port": 3478,
+    "publicKey": "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----"
+  },
+  "privateKeyPath": "server-private.pem",
+  "publicKeyPath": "server-public.pem",
+  "password": "your-secure-password",
+  "services": {
+    "files": {
+      "enabled": true,
+      "rootDir": "/home/user",
+      "allowedDirs": ["/home/user"],
+      "maxFileSize": 104857600
+    }
+  }
+}

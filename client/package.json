@@ -1,0 +1,19 @@
+{
+  "name": "homechannel-client",
+  "version": "0.1.0",
+  "description": "HomeChannel client - browser API for WebRTC datachannel connections",
+  "main": "client.js",
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "test:watch": "node --test --watch test/*.test.js"
+  },
+  "keywords": ["webrtc", "client", "p2p", "browser"],
+  "author": "",
+  "license": "GPL-3.0",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}

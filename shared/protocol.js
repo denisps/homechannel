@@ -34,6 +34,7 @@ export const MESSAGE_TYPES = Object.freeze({
   HEARTBEAT: 0x07,      // Challenge refresh
   ANSWER: 0x08,         // SDP answer
   MIGRATE: 0x09,        // Coordinator migration (redirect to new coordinator)
+  OFFER: 0x0A,          // SDP offer (coordinator to server)
   ERROR: 0xFF           // Error response (not sent for HELLO messages)
 });
 
@@ -47,6 +48,7 @@ export const MESSAGE_TYPE_NAMES = Object.freeze({
   [MESSAGE_TYPES.HEARTBEAT]: 'heartbeat',
   [MESSAGE_TYPES.ANSWER]: 'answer',
   [MESSAGE_TYPES.MIGRATE]: 'migrate',
+  [MESSAGE_TYPES.OFFER]: 'offer',
   [MESSAGE_TYPES.ERROR]: 'error'
 });
 
@@ -1097,6 +1099,45 @@ export class UDPServer {
    */
   on(type, handler) {
     this.messageHandlers.set(type, handler);
+  }
+
+  /**
+   * Send offer to server
+   * Called by HTTPS server when client initiates connection
+   */
+  async sendOfferToServer(ipPort, sessionId, payload) {
+    const [address, port] = ipPort.split(':');
+    
+    // Get expectedAnswer for encryption
+    const expectedAnswer = this.registry.getExpectedAnswer(ipPort);
+    if (!expectedAnswer) {
+      throw new Error('Server not found');
+    }
+    
+    // Build offer message
+    const offerData = {
+      type: 'offer',
+      sessionId,
+      timestamp: Date.now(),
+      payload
+    };
+    
+    // Encrypt message using expectedAnswer as key
+    const key = deriveAESKey(expectedAnswer);
+    const encryptedPayload = encryptAES(offerData, key);
+    
+    // Build binary message: [version][type][payload]
+    const message = buildUDPMessage(MESSAGE_TYPES.OFFER, encryptedPayload);
+    
+    return new Promise((resolve, reject) => {
+      this.socket.send(message, parseInt(port), address, (err) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve();
+        }
+      });
+    });
   }
 
   /**
