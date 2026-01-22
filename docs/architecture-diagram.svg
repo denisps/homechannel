@@ -40,8 +40,8 @@
 
   <!-- UDP Connection: Coordinator to Server -->
   <path d="M 475 90 L 600 110" class="arrow-both"/>
-  <text x="520" y="88" class="text connection-label">UDP</text>
-  <text x="520" y="101" class="text connection-label">AES-CTR</text>
+  <text x="530" y="78" class="text connection-label">UDP</text>
+  <text x="530" y="90" class="text connection-label">AES-GCM</text>
 
   <!-- WebRTC Direct P2P Connection -->
   <path d="M 125 180 Q 400 280 675 180" class="arrow-both" stroke-dasharray="5,5"/>
