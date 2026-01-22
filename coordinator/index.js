@@ -2,6 +2,7 @@ import fs from 'fs';
 import { ServerRegistry } from './registry.js';
 import { UDPServer } from '../shared/protocol.js';
 import { loadKeys, generateECDSAKeyPair, saveKeys } from '../shared/keys.js';
+import { HTTPSServer } from './https.js';
 
 /**
  * HomeChannel Coordinator
@@ -13,6 +14,7 @@ class Coordinator {
     this.config = config;
     this.registry = null;
     this.udpServer = null;
+    this.httpsServer = null;
     this.coordinatorKeys = null;
   }
 
@@ -45,15 +47,30 @@ class Coordinator {
       port: this.config.udp.port
     });
 
+    // Initialize HTTPS server
+    this.httpsServer = new HTTPSServer(this.registry, this.coordinatorKeys, this.udpServer, {
+      port: this.config.https.port,
+      host: this.config.https.host
+    });
+
+    // Register answer handler to relay to HTTPS clients
+    this.udpServer.on('answer', (answerData, sessionId) => {
+      if (this.httpsServer) {
+        this.httpsServer.storeServerAnswer(sessionId, answerData.payload, answerData.signature);
+      }
+    });
+
     console.log('Coordinator initialized');
   }
 
   async start() {
     await this.init();
     await this.udpServer.start();
+    await this.httpsServer.start();
     
     console.log('Coordinator started');
     console.log(`UDP port: ${this.config.udp.port}`);
+    console.log(`HTTPS port: ${this.config.https.port}`);
     console.log(`Max servers: ${this.config.maxServers}`);
     console.log(`Server timeout: ${this.config.serverTimeout}ms`);
 
@@ -66,6 +83,10 @@ class Coordinator {
 
   async stop() {
     console.log('Stopping coordinator...');
+    
+    if (this.httpsServer) {
+      await this.httpsServer.stop();
+    }
     
     if (this.udpServer) {
       await this.udpServer.stop();
