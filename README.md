@@ -81,6 +81,7 @@ See [PROTOCOL.md](docs/PROTOCOL.md) for detailed specifications.
 - [PROTOCOL.md](docs/PROTOCOL.md) - Detailed protocol specifications
 - [SECURITY.md](docs/SECURITY.md) - Security architecture and cryptography
 - [ARCHITECTURE.md](docs/ARCHITECTURE.md) - System design and components
+- [FILE_SERVICE.md](docs/FILE_SERVICE.md) - File service API documentation
 - [shared/crypto.js](shared/crypto.js) - Shared crypto primitives (ECDSA, ECDH, AES-GCM)
 - [shared/protocol.js](shared/protocol.js) - Shared protocol constants and UDP framing helpers
 - [coordinator/README.md](coordinator/README.md) - Coordinator implementation

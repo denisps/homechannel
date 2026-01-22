@@ -10,6 +10,7 @@ export class WebRTCPeer {
     this.iceCandidates = [];
     this.handlers = new Map();
     this.onAnswer = options.onAnswer || null;
+    this.serviceRouter = options.serviceRouter || null;
   }
 
   /**
@@ -76,6 +77,44 @@ export class WebRTCPeer {
    */
   getICECandidates() {
     return this.iceCandidates;
+  }
+
+  /**
+   * Handle incoming message from datachannel
+   */
+  async handleDataChannelMessage(message) {
+    try {
+      const parsedMessage = typeof message === 'string' ? JSON.parse(message) : message;
+      
+      if (!this.serviceRouter) {
+        return {
+          requestId: parsedMessage.requestId,
+          success: false,
+          error: 'Service router not configured'
+        };
+      }
+
+      const response = await this.serviceRouter.handleMessage(parsedMessage);
+      return response;
+    } catch (error) {
+      return {
+        requestId: null,
+        success: false,
+        error: 'Invalid message format'
+      };
+    }
+  }
+
+  /**
+   * Send message over datachannel
+   */
+  sendMessage(message) {
+    if (this.dataChannel && this.dataChannel.readyState === 'open') {
+      const json = JSON.stringify(message);
+      this.dataChannel.send(json);
+    } else {
+      throw new Error('DataChannel not ready');
+    }
   }
 
   /**
