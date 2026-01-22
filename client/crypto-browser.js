@@ -6,8 +6,19 @@
 // Use globalThis.crypto which works in both browser and Node.js (18+)
 const cryptoAPI = globalThis.crypto;
 
-// atob for base64 decoding (browser has it globally, Node.js needs Buffer)
-const atobFunc = typeof atob !== 'undefined' ? atob : (str) => Buffer.from(str, 'base64').toString('binary');
+/**
+ * Base64 decode that works in both browser and Node.js
+ */
+function base64Decode(str) {
+  if (typeof atob !== 'undefined') {
+    // Browser environment
+    return atob(str);
+  } else if (typeof Buffer !== 'undefined') {
+    // Node.js environment
+    return Buffer.from(str, 'base64').toString('binary');
+  }
+  throw new Error('No base64 decoder available');
+}
 
 /**
  * Convert PEM public key to CryptoKey for ECDSA verification
@@ -19,7 +30,7 @@ async function importPublicKey(pemKey) {
     .replace('-----END PUBLIC KEY-----', '')
     .replace(/\s/g, '');
   
-  const binaryDer = Uint8Array.from(atobFunc(pemContents), c => c.charCodeAt(0));
+  const binaryDer = Uint8Array.from(base64Decode(pemContents), c => c.charCodeAt(0));
   
   return await cryptoAPI.subtle.importKey(
     'spki',
