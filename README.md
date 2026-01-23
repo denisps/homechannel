@@ -146,10 +146,19 @@ npm test
 cd ../server
 npm test
 
+# Run server WebRTC connectivity tests (optional, requires WebRTC library)
+npm run test:webrtc
+
+# Run ALL server tests including connectivity
+npm run test:all
+
 # Run client tests
 cd ../client
 npm test
 ```
+
+**Optional WebRTC Connectivity Tests:**
+The server includes optional connectivity and performance tests that require at least one WebRTC library to be installed. These tests verify actual peer connection creation, offer/answer exchange, and performance metrics. Run with `npm run test:webrtc` in the server directory. See [server/README.md](server/README.md) for details.
 
 **Technology Constraints:**
 - Pure JavaScript (no TypeScript)

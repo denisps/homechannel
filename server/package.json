@@ -7,7 +7,9 @@
   "scripts": {
     "start": "node index.js",
     "test": "node --test test/*.test.js",
-    "test:watch": "node --test --watch test/*.test.js"
+    "test:watch": "node --test --watch test/*.test.js",
+    "test:webrtc": "./test-webrtc-connectivity.sh",
+    "test:all": "npm test && npm run test:webrtc"
   },
   "keywords": ["webrtc", "p2p", "home-server"],
   "author": "",
