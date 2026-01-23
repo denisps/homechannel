@@ -32,6 +32,10 @@ HomeChannel enables direct peer-to-peer connections between browser clients and 
 
 - Node.js 18+
 - Modern browser with WebRTC support
+- One of the WebRTC libraries for server (see [WebRTC Libraries](docs/WEBRTC_LIBRARIES.md)):
+  - `werift` (recommended) - Pure JavaScript, no compilation
+  - `wrtc` - Native bindings to libwebrtc
+  - `node-datachannel` - Lightweight C++ bindings
 
 ### Installation
 
@@ -48,6 +52,11 @@ node index.js
 
 # Set up server (on home network)
 cd ../server
+# Install WebRTC library (choose one)
+npm install werift  # Recommended: pure JavaScript
+# npm install wrtc  # Alternative: native bindings
+# npm install node-datachannel  # Alternative: lightweight
+
 # Copy and edit config.example.json to config.json
 npm test  # Verify installation
 node index.js
@@ -109,6 +118,7 @@ See [PROTOCOL.md](docs/PROTOCOL.md) for detailed specifications.
 - [ARCHITECTURE.md](docs/ARCHITECTURE.md) - System design and components
 - [PROTOCOL.md](docs/PROTOCOL.md) - Detailed protocol specifications
 - [SECURITY.md](docs/SECURITY.md) - Security architecture and cryptography
+- [WEBRTC_LIBRARIES.md](docs/WEBRTC_LIBRARIES.md) - WebRTC library options for Node.js
 
 ### Component Documentation
 - [coordinator/README.md](coordinator/README.md) - Coordinator implementation

@@ -2,7 +2,7 @@ import fs from 'fs';
 import { promises as fsPromises } from 'fs';
 import path from 'path';
 import { UDPClient } from '../shared/protocol.js';
-import { WebRTCPeer } from './webrtc.js';
+import { createWebRTCPeer } from './webrtc.js';
 import { loadKeys, generateECDSAKeyPair, saveKeys } from '../shared/keys.js';
 import { ServiceRouter } from './services/index.js';
 
@@ -125,7 +125,15 @@ class Server {
     try {
       // Create or reuse peer connection
       if (!this.peers.has(clientId)) {
-        const peer = new WebRTCPeer({ serviceRouter: this.serviceRouter });
+        const libraryName = this.config.webrtc?.library || 'werift';
+        const peer = await createWebRTCPeer(libraryName, {
+          serviceRouter: this.serviceRouter
+        });
+        
+        if (!peer) {
+          throw new Error(`WebRTC library '${libraryName}' not available`);
+        }
+        
         this.peers.set(clientId, peer);
       }
 
