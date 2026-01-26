@@ -66,7 +66,7 @@ describe('WebRTC Connectivity Tests', () => {
           let offererChannel = null;
           if (libraryName === 'node-datachannel') {
             // Reset promise before creating datachannel to catch the offer
-            offerer._resetLocalDescriptionPromise();
+            offerer.resetLocalDescriptionPromise();
             offererChannel = offerer.pc.createDataChannel('test');
           } else {
             offererChannel = offerer.pc.createDataChannel('test');
@@ -194,7 +194,7 @@ describe('WebRTC Performance Tests', () => {
           // Create datachannel
           if (libraryName === 'node-datachannel') {
             // Reset promise before creating datachannel to catch the offer
-            offerer._resetLocalDescriptionPromise();
+            offerer.resetLocalDescriptionPromise();
             offerer.pc.createDataChannel('perf-test');
           } else {
             offerer.pc.createDataChannel('perf-test');
