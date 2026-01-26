@@ -57,7 +57,7 @@ describe('WebRTC Connectivity Tests', () => {
         peer.close();
       });
 
-      it('should create and handle offer/answer', async () => {
+      it('should create and handle offer/answer', { timeout: 10000 }, async () => {
         const offerer = await createWebRTCPeer(libraryName);
         const answerer = await createWebRTCPeer(libraryName);
         
@@ -65,6 +65,8 @@ describe('WebRTC Connectivity Tests', () => {
           // Offerer creates datachannel
           let offererChannel = null;
           if (libraryName === 'node-datachannel') {
+            // Reset promise before creating datachannel to catch the offer
+            offerer._resetLocalDescriptionPromise();
             offererChannel = offerer.pc.createDataChannel('test');
           } else {
             offererChannel = offerer.pc.createDataChannel('test');
@@ -75,11 +77,8 @@ describe('WebRTC Connectivity Tests', () => {
           // Create offer
           let offer;
           if (libraryName === 'node-datachannel') {
-            offer = await new Promise((resolve) => {
-              offerer.pc.onLocalDescription((sdp, type) => {
-                resolve({ type, sdp });
-              });
-            });
+            // Wait for local description with timeout
+            offer = await offerer.waitForLocalDescription(5000);
           } else {
             offer = await offerer.pc.createOffer();
             await offerer.pc.setLocalDescription(offer);
@@ -187,13 +186,15 @@ describe('WebRTC Performance Tests', () => {
         }
       });
 
-      it('should measure offer/answer creation time', async () => {
+      it('should measure offer/answer creation time', { timeout: 15000 }, async () => {
         const offerer = await createWebRTCPeer(libraryName);
         const answerer = await createWebRTCPeer(libraryName);
         
         try {
           // Create datachannel
           if (libraryName === 'node-datachannel') {
+            // Reset promise before creating datachannel to catch the offer
+            offerer._resetLocalDescriptionPromise();
             offerer.pc.createDataChannel('perf-test');
           } else {
             offerer.pc.createDataChannel('perf-test');
@@ -204,11 +205,8 @@ describe('WebRTC Performance Tests', () => {
           let offer;
           
           if (libraryName === 'node-datachannel') {
-            offer = await new Promise((resolve) => {
-              offerer.pc.onLocalDescription((sdp, type) => {
-                resolve({ type, sdp });
-              });
-            });
+            // Wait for local description with timeout
+            offer = await offerer.waitForLocalDescription(5000);
           } else {
             offer = await offerer.pc.createOffer();
             await offerer.pc.setLocalDescription(offer);

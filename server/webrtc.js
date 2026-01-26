@@ -37,6 +37,8 @@ export class WebRTCPeer {
     this.handlers = new Map();
     this.options = options;
     this.serviceRouter = options.serviceRouter || null;
+    this.localDescription = null; // Store local description for node-datachannel
+    this.localDescriptionPromise = null; // Promise for waiting on local description
   }
 
   /**
@@ -157,8 +159,15 @@ export class WebRTCPeer {
    * Setup node-datachannel handlers
    */
   _setupNodeDatachannelHandlers() {
+    // Create a promise that will resolve when local description is available
+    this._resetLocalDescriptionPromise();
+
     this.pc.onLocalDescription((description, type) => {
-      // Handle local description
+      // Store local description
+      this.localDescription = { sdp: description, type };
+      if (this._localDescriptionResolve) {
+        this._localDescriptionResolve({ sdp: description, type });
+      }
     });
 
     this.pc.onLocalCandidate((candidate, mid) => {
@@ -185,6 +194,16 @@ export class WebRTCPeer {
       if (this.handlers.has('connectionstatechange')) {
         this.handlers.get('connectionstatechange')(state);
       }
+    });
+  }
+
+  /**
+   * Reset the local description promise for node-datachannel
+   * Call this before operations that will generate a new local description
+   */
+  _resetLocalDescriptionPromise() {
+    this.localDescriptionPromise = new Promise((resolve) => {
+      this._localDescriptionResolve = resolve;
     });
   }
 
@@ -260,6 +279,8 @@ export class WebRTCPeer {
         : sdpOffer;
 
       if (this.libraryName === 'node-datachannel') {
+        // Reset promise before setting remote description, which will trigger local description generation
+        this._resetLocalDescriptionPromise();
         this.pc.setRemoteDescription(offer.sdp, offer.type);
       } else {
         await this.pc.setRemoteDescription(offer);
@@ -280,12 +301,9 @@ export class WebRTCPeer {
       }
 
       if (this.libraryName === 'node-datachannel') {
-        // node-datachannel handles this internally
-        return new Promise((resolve) => {
-          this.pc.onLocalDescription((description, type) => {
-            resolve({ type, sdp: description });
-          });
-        });
+        // node-datachannel generates answer automatically after setRemoteDescription
+        // Wait for the local description promise to resolve
+        return await this.localDescriptionPromise;
       } else {
         const answer = await this.pc.createAnswer();
         await this.pc.setLocalDescription(answer);
@@ -295,6 +313,24 @@ export class WebRTCPeer {
       console.error('Error creating answer:', error.message);
       throw error;
     }
+  }
+
+  /**
+   * Wait for local description with timeout (for node-datachannel)
+   * @param {number} timeoutMs - Timeout in milliseconds (default 5000)
+   * @returns {Promise<object>} Local description
+   */
+  async waitForLocalDescription(timeoutMs = 5000) {
+    if (this.libraryName !== 'node-datachannel') {
+      throw new Error('waitForLocalDescription is only for node-datachannel');
+    }
+
+    return Promise.race([
+      this.localDescriptionPromise,
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Timeout waiting for local description')), timeoutMs)
+      )
+    ]);
   }
 
   /**
