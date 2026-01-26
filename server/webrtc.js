@@ -214,8 +214,12 @@ export class WebRTCPeer {
       return; // No-op for other libraries
     }
     
-    // Don't reject previous promise, just replace it
-    // The previous promise will never resolve if unused
+    // Clean up previous resolver references to ensure garbage collection
+    this._localDescriptionResolve = null;
+    this._localDescriptionReject = null;
+    
+    // Create new promise - previous promise (if any) will remain unresolved
+    // Callers should not retain references to old promises
     this.localDescriptionPromise = new Promise((resolve, reject) => {
       this._localDescriptionResolve = resolve;
       this._localDescriptionReject = reject;
@@ -318,12 +322,22 @@ export class WebRTCPeer {
       if (this.libraryName === 'node-datachannel') {
         // node-datachannel generates answer automatically after setRemoteDescription
         // Wait for the local description promise to resolve with timeout
-        return await Promise.race([
-          this.localDescriptionPromise,
-          new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('Timeout creating answer')), NODE_DATACHANNEL_TIMEOUT_MS)
-          )
-        ]);
+        let timeoutId;
+        const timeoutPromise = new Promise((_, reject) => {
+          timeoutId = setTimeout(() => reject(new Error('Timeout creating answer')), NODE_DATACHANNEL_TIMEOUT_MS);
+        });
+
+        try {
+          const result = await Promise.race([
+            this.localDescriptionPromise,
+            timeoutPromise
+          ]);
+          clearTimeout(timeoutId);
+          return result;
+        } catch (error) {
+          clearTimeout(timeoutId);
+          throw error;
+        }
       } else {
         const answer = await this.pc.createAnswer();
         await this.pc.setLocalDescription(answer);
