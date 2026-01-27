@@ -1,15 +1,14 @@
 #!/bin/bash
 
 # Run WebRTC connectivity tests
-# This script only runs if at least one WebRTC library is installed
+# Installs all optional WebRTC libraries before testing
 
 echo "WebRTC Connectivity and Performance Tests"
 echo "=========================================="
 echo ""
-echo "This test suite requires at least one WebRTC library to be installed:"
-echo "  - werift (recommended): npm install werift"
-echo "  - wrtc: npm install wrtc"
-echo "  - node-datachannel: npm install node-datachannel"
+echo "Installing optional WebRTC libraries..."
+echo "(Some may fail to install - this is normal)"
+npm install --no-save 2>&1 | grep -E "(added|removed|up to date|werift|wrtc|node-datachannel)" || true
 echo ""
 
 # Run the connectivity tests
