@@ -5,16 +5,19 @@
  * Demonstrates dynamic loading and library detection
  */
 
-import { loadWebRTCLibrary, createWebRTCPeer } from './webrtc.js';
-
-const libraries = ['werift', 'wrtc', 'node-datachannel'];
+import { loadWebRTCLibrary, createWebRTCPeer, checkWebRTCLibraries, displayWebRTCStatus } from './webrtc.js';
 
 console.log('Testing WebRTC library loading...\n');
+
+// Display overall status first
+await displayWebRTCStatus();
+
+const libraries = ['werift', 'wrtc', 'node-datachannel'];
 
 for (const libraryName of libraries) {
   console.log(`Testing ${libraryName}:`);
   
-  const library = await loadWebRTCLibrary(libraryName);
+  const library = await loadWebRTCLibrary(libraryName, true);
   
   if (library) {
     console.log(`  ✅ ${libraryName} loaded successfully`);

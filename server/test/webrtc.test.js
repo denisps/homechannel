@@ -4,14 +4,14 @@
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert';
-import { loadWebRTCLibrary, createWebRTCPeer, WebRTCPeer } from '../webrtc.js';
+import { loadWebRTCLibrary, createWebRTCPeer, WebRTCPeer, checkWebRTCLibraries, displayWebRTCStatus } from '../webrtc.js';
 import fs from 'fs';
 
 describe('WebRTC Library Abstraction', () => {
   
   describe('loadWebRTCLibrary', () => {
     it('should return null for non-existent library', async () => {
-      const library = await loadWebRTCLibrary('non-existent-webrtc-lib');
+      const library = await loadWebRTCLibrary('non-existent-webrtc-lib', true);
       assert.strictEqual(library, null);
     });
 
@@ -20,7 +20,7 @@ describe('WebRTC Library Abstraction', () => {
       const libraries = ['werift', 'wrtc', 'node-datachannel'];
       
       for (const name of libraries) {
-        const library = await loadWebRTCLibrary(name);
+        const library = await loadWebRTCLibrary(name, true);
         // Should return either object or null, not throw
         assert.ok(library === null || typeof library === 'object');
       }
@@ -92,6 +92,43 @@ describe('WebRTC Library Abstraction', () => {
     it('should return null for non-existent library', async () => {
       const peer = await createWebRTCPeer('non-existent-lib');
       assert.strictEqual(peer, null);
+    });
+  });
+
+  describe('checkWebRTCLibraries', () => {
+    it('should return available and missing libraries', async () => {
+      const { available, missing } = await checkWebRTCLibraries();
+      
+      // Should return arrays
+      assert.ok(Array.isArray(available));
+      assert.ok(Array.isArray(missing));
+      
+      // Should have 3 libraries total
+      assert.strictEqual(available.length + missing.length, 3);
+      
+      // All entries should be known library names
+      const allLibs = [...available, ...missing];
+      for (const lib of allLibs) {
+        assert.ok(['werift', 'wrtc', 'node-datachannel'].includes(lib));
+      }
+    });
+
+    it('should not duplicate libraries', async () => {
+      const { available, missing } = await checkWebRTCLibraries();
+      
+      // No library should appear in both lists
+      for (const lib of available) {
+        assert.ok(!missing.includes(lib));
+      }
+    });
+  });
+
+  describe('displayWebRTCStatus', () => {
+    it('should not throw when displaying status', async () => {
+      // Just verify it doesn't throw
+      await assert.doesNotReject(async () => {
+        await displayWebRTCStatus();
+      });
     });
   });
 });

@@ -2,7 +2,7 @@ import fs from 'fs';
 import { promises as fsPromises } from 'fs';
 import path from 'path';
 import { UDPClient } from '../shared/protocol.js';
-import { createWebRTCPeer } from './webrtc.js';
+import { createWebRTCPeer, displayWebRTCStatus } from './webrtc.js';
 import { loadKeys, generateECDSAKeyPair, saveKeys } from '../shared/keys.js';
 import { ServiceRouter } from './services/index.js';
 
@@ -22,6 +22,9 @@ class Server {
   }
 
   async init() {
+    // Display WebRTC library status
+    await displayWebRTCStatus();
+
     // Load or generate server keys
     try {
       this.serverKeys = loadKeys(this.config.privateKeyPath, this.config.publicKeyPath);

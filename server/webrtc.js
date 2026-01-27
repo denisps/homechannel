@@ -7,19 +7,65 @@
 // Timeout for node-datachannel local description generation (ms)
 const NODE_DATACHANNEL_TIMEOUT_MS = 5000;
 
+// Supported WebRTC libraries
+const SUPPORTED_LIBRARIES = ['werift', 'wrtc', 'node-datachannel'];
+
+/**
+ * Check which WebRTC libraries are available
+ * @returns {Promise<{available: string[], missing: string[]}>}
+ */
+export async function checkWebRTCLibraries() {
+  const available = [];
+  const missing = [];
+
+  for (const libraryName of SUPPORTED_LIBRARIES) {
+    const library = await loadWebRTCLibrary(libraryName, true);
+    if (library) {
+      available.push(libraryName);
+    } else {
+      missing.push(libraryName);
+    }
+  }
+
+  return { available, missing };
+}
+
+/**
+ * Display WebRTC library status and prompt for missing libraries
+ * @returns {Promise<void>}
+ */
+export async function displayWebRTCStatus() {
+  const { available, missing } = await checkWebRTCLibraries();
+
+  if (available.length > 0) {
+    console.log(`\n✓ WebRTC libraries installed: ${available.join(', ')}`);
+  }
+
+  if (missing.length > 0) {
+    console.log(`\n⚠️  WebRTC libraries not installed: ${missing.join(', ')}`);
+    console.log('   Install with: npm install ' + missing.join(' '));
+    console.log('   Note: These are optional - you only need one WebRTC library.\n');
+  } else {
+    console.log('');
+  }
+}
+
 /**
  * Load WebRTC library dynamically
  * @param {string} libraryName - Name of the library to load (werift, wrtc, node-datachannel)
+ * @param {boolean} silent - If true, suppress warning messages
  * @returns {Promise<object>} Loaded library module
  */
-export async function loadWebRTCLibrary(libraryName = 'werift') {
+export async function loadWebRTCLibrary(libraryName = 'werift', silent = false) {
   try {
     const module = await import(libraryName);
     return module;
   } catch (error) {
     if (error.code === 'ERR_MODULE_NOT_FOUND') {
-      console.warn(`\n⚠️  WebRTC library '${libraryName}' is not installed.`);
-      console.warn(`   Install it with: npm install ${libraryName}\n`);
+      if (!silent) {
+        console.warn(`\n⚠️  WebRTC library '${libraryName}' is not installed.`);
+        console.warn(`   Install it with: npm install ${libraryName}\n`);
+      }
       return null;
     }
     throw error;
