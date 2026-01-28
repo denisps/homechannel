@@ -513,7 +513,17 @@ class Client {
           return;
         }
         
+        // Timeout after 10 seconds
+        const timeoutId = setTimeout(() => {
+          if (this.dataChannel) {
+            this.dataChannel.removeEventListener('open', openHandler);
+            this.dataChannel.removeEventListener('error', errorHandler);
+          }
+          reject(new Error('DataChannel open timeout'));
+        }, 10000);
+        
         const openHandler = () => {
+          clearTimeout(timeoutId);
           if (this.dataChannel) {
             this.dataChannel.removeEventListener('open', openHandler);
             this.dataChannel.removeEventListener('error', errorHandler);
@@ -522,6 +532,7 @@ class Client {
         };
         
         const errorHandler = (error) => {
+          clearTimeout(timeoutId);
           if (this.dataChannel) {
             this.dataChannel.removeEventListener('open', openHandler);
             this.dataChannel.removeEventListener('error', errorHandler);
@@ -531,15 +542,6 @@ class Client {
         
         this.dataChannel.addEventListener('open', openHandler);
         this.dataChannel.addEventListener('error', errorHandler);
-        
-        // Timeout after 10 seconds
-        setTimeout(() => {
-          if (this.dataChannel) {
-            this.dataChannel.removeEventListener('open', openHandler);
-            this.dataChannel.removeEventListener('error', errorHandler);
-          }
-          reject(new Error('DataChannel open timeout'));
-        }, 10000);
       });
     }
     
