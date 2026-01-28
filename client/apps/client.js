@@ -335,6 +335,12 @@ class Client {
         document.body.removeChild(this.iframe);
         this.iframe = null;
       }
+      
+      // Clean up any pending iframe requests
+      for (const [requestId, { reject }] of this.iframeRequests) {
+        reject(new Error('Client disconnected'));
+      }
+      this.iframeRequests.clear();
     }
     
     /**
@@ -508,14 +514,18 @@ class Client {
         }
         
         const openHandler = () => {
-          this.dataChannel.removeEventListener('open', openHandler);
-          this.dataChannel.removeEventListener('error', errorHandler);
+          if (this.dataChannel) {
+            this.dataChannel.removeEventListener('open', openHandler);
+            this.dataChannel.removeEventListener('error', errorHandler);
+          }
           resolve();
         };
         
         const errorHandler = (error) => {
-          this.dataChannel.removeEventListener('open', openHandler);
-          this.dataChannel.removeEventListener('error', errorHandler);
+          if (this.dataChannel) {
+            this.dataChannel.removeEventListener('open', openHandler);
+            this.dataChannel.removeEventListener('error', errorHandler);
+          }
           reject(error);
         };
         
@@ -524,8 +534,10 @@ class Client {
         
         // Timeout after 10 seconds
         setTimeout(() => {
-          this.dataChannel.removeEventListener('open', openHandler);
-          this.dataChannel.removeEventListener('error', errorHandler);
+          if (this.dataChannel) {
+            this.dataChannel.removeEventListener('open', openHandler);
+            this.dataChannel.removeEventListener('error', errorHandler);
+          }
           reject(new Error('DataChannel open timeout'));
         }, 10000);
       });
