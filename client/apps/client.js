@@ -84,6 +84,40 @@ const cryptoAPI = globalThis.crypto;
   }
 
   /**
+   * Derive encryption key from password using PBKDF2
+   */
+  async function deriveEncryptionKey(password, serverPublicKey) {
+    const encoder = new TextEncoder();
+    const passwordBytes = encoder.encode(password);
+    
+    // Use server public key as salt (deterministic and unique per server)
+    const saltBytes = encoder.encode(serverPublicKey);
+    
+    // Import password as key material
+    const keyMaterial = await cryptoAPI.subtle.importKey(
+      'raw',
+      passwordBytes,
+      'PBKDF2',
+      false,
+      ['deriveBits']
+    );
+    
+    // Derive 256-bit key using PBKDF2
+    const derivedBits = await cryptoAPI.subtle.deriveBits(
+      {
+        name: 'PBKDF2',
+        salt: saltBytes,
+        iterations: 100000,
+        hash: 'SHA-256'
+      },
+      keyMaterial,
+      256
+    );
+    
+    return bytesToHex(new Uint8Array(derivedBits));
+  }
+
+  /**
    * Convert hex string to Uint8Array
    */
   function hexToBytes(hex) {
@@ -101,6 +135,103 @@ const cryptoAPI = globalThis.crypto;
     return Array.from(bytes)
       .map(b => b.toString(16).padStart(2, '0'))
       .join('');
+  }
+
+  /**
+   * Deflate (compress) data using browser CompressionStream
+   */
+  async function deflate(data) {
+    const encoder = new TextEncoder();
+    const dataBytes = encoder.encode(JSON.stringify(data));
+    
+    const stream = new Blob([dataBytes]).stream();
+    const compressedStream = stream.pipeThrough(new CompressionStream('deflate'));
+    const compressedBlob = await new Response(compressedStream).blob();
+    
+    return new Uint8Array(await compressedBlob.arrayBuffer());
+  }
+
+  /**
+   * Inflate (decompress) data using browser DecompressionStream
+   */
+  async function inflate(compressedBytes) {
+    const stream = new Blob([compressedBytes]).stream();
+    const decompressedStream = stream.pipeThrough(new DecompressionStream('deflate'));
+    const decompressedBlob = await new Response(decompressedStream).blob();
+    
+    const decoder = new TextDecoder();
+    const decompressedBytes = new Uint8Array(await decompressedBlob.arrayBuffer());
+    return JSON.parse(decoder.decode(decompressedBytes));
+  }
+
+  /**
+   * Derive AES-GCM key from hex key material
+   */
+  async function deriveAESKey(keyMaterial) {
+    // keyMaterial is hex string, convert to bytes
+    const keyBytes = hexToBytes(keyMaterial);
+    
+    return await cryptoAPI.subtle.importKey(
+      'raw',
+      keyBytes,
+      { name: 'AES-GCM' },
+      false,
+      ['encrypt', 'decrypt']
+    );
+  }
+
+  /**
+   * Encrypt data with AES-256-GCM
+   */
+  async function encryptPayload(data, keyMaterial) {
+    const key = await deriveAESKey(keyMaterial);
+    
+    // Generate random IV (12 bytes for GCM)
+    const iv = cryptoAPI.getRandomValues(new Uint8Array(12));
+    
+    // Deflate then encrypt
+    const deflated = await deflate(data);
+    
+    const encrypted = await cryptoAPI.subtle.encrypt(
+      {
+        name: 'AES-GCM',
+        iv: iv
+      },
+      key,
+      deflated
+    );
+    
+    // Return IV + ciphertext as hex
+    const combined = new Uint8Array(iv.length + encrypted.byteLength);
+    combined.set(iv, 0);
+    combined.set(new Uint8Array(encrypted), iv.length);
+    
+    return bytesToHex(combined);
+  }
+
+  /**
+   * Decrypt AES-256-GCM encrypted data
+   */
+  async function decryptPayload(encryptedHex, keyMaterial) {
+    const key = await deriveAESKey(keyMaterial);
+    
+    // Parse IV + ciphertext
+    const combined = hexToBytes(encryptedHex);
+    const iv = combined.slice(0, 12);
+    const ciphertext = combined.slice(12);
+    
+    // Decrypt
+    const decrypted = await cryptoAPI.subtle.decrypt(
+      {
+        name: 'AES-GCM',
+        iv: iv
+      },
+      key,
+      ciphertext
+    );
+    
+    // Inflate
+    return await inflate(new Uint8Array(decrypted));
   }
   
 /**
@@ -201,7 +332,13 @@ class Client {
           throw new Error('Server is offline');
         }
         
-        // Compute challenge answer
+        // Derive encryption key from password using server public key as salt
+        const encryptionKey = await deriveEncryptionKey(password, serverPublicKey);
+        
+        // Store for payload encryption/decryption
+        this.encryptionKey = encryptionKey;
+        
+        // Compute challenge answer for authentication
         const challengeAnswer = await hashChallengeAnswer(
           serverInfo.challenge,
           password
@@ -215,14 +352,17 @@ class Client {
         // Wait for ICE gathering to complete
         await this.waitForIceGathering();
         
-        // Send connection request with offer and candidates
+        // Encrypt the offer payload with password-derived key
+        const encryptedPayload = await encryptPayload({
+          sdp: offer,
+          candidates: this.iceCandidates
+        }, encryptionKey);
+        
+        // Send connection request with encrypted payload
         const connectResponse = await this.iframeRequest('connect', {
           serverPublicKey,
           challengeAnswer,
-          payload: {
-            sdp: offer,
-            candidates: this.iceCandidates
-          }
+          payload: encryptedPayload
         });
         
         this.sessionId = connectResponse.sessionId;
@@ -230,7 +370,7 @@ class Client {
         // Poll for server's answer
         const answer = await this.pollForAnswer();
         
-        // Verify server's signature on answer
+        // Verify server's signature on answer (signature is over encrypted payload)
         const answerValid = await verifySignature(
           {
             serverPublicKey: answer.serverPublicKey,
@@ -246,10 +386,13 @@ class Client {
           throw new Error('Invalid server signature on answer');
         }
         
-        // Set remote description and add ICE candidates
-        await this.peerConnection.setRemoteDescription(answer.payload.sdp);
+        // Decrypt the answer payload with password-derived key
+        const decryptedPayload = await decryptPayload(answer.payload, this.encryptionKey);
         
-        for (const candidate of answer.payload.candidates) {
+        // Set remote description and add ICE candidates
+        await this.peerConnection.setRemoteDescription(decryptedPayload.sdp);
+        
+        for (const candidate of decryptedPayload.candidates) {
           await this.peerConnection.addIceCandidate(candidate);
         }
         
@@ -552,13 +695,16 @@ class Client {
 // ============================================================================
 
 // ES module exports
-export { Client, verifySignature, hashChallengeAnswer };
+export { Client, verifySignature, hashChallengeAnswer, deriveEncryptionKey, encryptPayload, decryptPayload };
 
 // Browser global exports (for script tag usage)
 if (typeof window !== 'undefined') {
   window.HomeChannelClient = {
     Client,
     verifySignature,
-    hashChallengeAnswer
+    hashChallengeAnswer,
+    deriveEncryptionKey,
+    encryptPayload,
+    decryptPayload
   };
 }
