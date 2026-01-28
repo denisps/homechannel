@@ -1,6 +1,6 @@
 import { test, describe, before, after, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
-import { Client } from '../client.js';
+import { Client, verifySignature, hashChallengeAnswer } from '../apps/client.js';
 
 /**
  * Mock browser APIs for Node.js testing
@@ -440,7 +440,7 @@ describe('Client Crypto', () => {
   });
   
   test('hashChallengeAnswer() returns hex string', async () => {
-    const { hashChallengeAnswer } = await import('../crypto-browser.js');
+    // hashChallengeAnswer is already imported from unified module
     const result = await hashChallengeAnswer('challenge123', 'password456');
     
     assert.strictEqual(typeof result, 'string');
@@ -448,7 +448,7 @@ describe('Client Crypto', () => {
   });
   
   test('verifySignature() validates signatures', async () => {
-    const { verifySignature } = await import('../crypto-browser.js');
+    // verifySignature is already imported from unified module
     
     // Use a valid base64-encoded ECDSA P-256 public key for testing
     const mockPemKey = `-----BEGIN PUBLIC KEY-----

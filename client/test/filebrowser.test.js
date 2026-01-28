@@ -65,14 +65,14 @@ test('filebrowser.html should have SVG icons', async () => {
   assert.ok(content.includes('id="icon-info"'), 'Should have info icon');
 });
 
-test('filebrowser.html should import client.js as ES module', async () => {
+test('filebrowser.html should load client scripts', async () => {
   const content = await readFile(filebrowserPath, 'utf8');
   
-  // Check for module script
-  assert.ok(content.includes('<script type="module">'), 'Should have ES module script');
+  // Check for script tag
+  assert.ok(content.includes('<script src="client.js"></script>'), 'Should load client.js');
   
-  // Check for client import
-  assert.ok(content.includes("import { Client } from '../client.js'"), 'Should import Client from client.js');
+  // Check for Client usage
+  assert.ok(content.includes('window.HomeChannelClient'), 'Should use HomeChannelClient from window');
 });
 
 test('filebrowser.html should have embedded styles', async () => {

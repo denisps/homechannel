@@ -599,8 +599,10 @@
     </defs>
   </svg>
   
-  <script type="module">
-    import { Client } from '../client.js';
+  <script src="client.js"></script>
+  <script>
+    // Get Client from window object (UMD exports to HomeChannelClient)
+    const { Client } = window.HomeChannelClient;
     
     // App State
     const state = {

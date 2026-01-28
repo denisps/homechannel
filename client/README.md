@@ -13,7 +13,9 @@ Browser-compatible JavaScript client for establishing secure WebRTC datachannel 
 
 ## Usage
 
-### Basic Example
+### Basic Example (HTML with Script Tags)
+
+The client works from the local filesystem using a script tag:
 
 ```html
 <!DOCTYPE html>
@@ -27,8 +29,9 @@ Browser-compatible JavaScript client for establishing secure WebRTC datachannel 
   <div id="status"></div>
   <div id="messages"></div>
   
-  <script type="module">
-    import { Client } from './client.js';
+  <script src="apps/client.js"></script>
+  <script>
+    const { Client } = window.HomeChannelClient;
     
     const coordinatorUrl = 'https://coordinator.example.com';
     const serverPublicKey = `-----BEGIN PUBLIC KEY-----
@@ -75,6 +78,17 @@ MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE...
   </script>
 </body>
 </html>
+```
+
+### ES Module Example (for Node.js tests)
+
+The same file works as an ES module:
+
+```javascript
+import { Client } from './apps/client.js';
+
+const client = new Client('https://coordinator.example.com');
+// ... rest of the code
 ```
 
 ## API Reference
@@ -145,10 +159,11 @@ Register event handler.
 
 ## Files
 
-- `client.js` - Main Client API (ES module)
-- `crypto-browser.js` - Browser crypto utilities (Web Crypto API)
+- `apps/client.js` - Universal module (works as ES module or script tag)
+- `apps/filebrowser.html` - Example file browser app
 - `iframe.html` - Coordinator iframe (self-contained)
 - `test/client.test.js` - Comprehensive test suite
+- `test/filebrowser.test.js` - Filebrowser app tests
 
 ## Testing
 

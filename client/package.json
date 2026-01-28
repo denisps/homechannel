@@ -2,7 +2,7 @@
   "name": "homechannel-client",
   "version": "0.1.0",
   "description": "HomeChannel client - browser API for WebRTC datachannel connections",
-  "main": "client.js",
+  "main": "apps/client.js",
   "type": "module",
   "scripts": {
     "test": "node --test test/*.test.js",

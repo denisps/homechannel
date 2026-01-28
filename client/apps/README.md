@@ -17,18 +17,16 @@ A self-contained web application for browsing and managing files on your home se
 
 ### 1. Open the File Browser
 
-Open `client/apps/filebrowser.html` in your web browser:
+The file browser can run directly from the local filesystem without needing a web server:
 
 ```bash
-# Using a simple HTTP server
-cd client/apps
-python3 -m http.server 8080
+# Simply open the file in your browser:
+open client/apps/filebrowser.html
 
-# Then open in browser:
-# http://localhost:8080/filebrowser.html
+# Or double-click the file in your file explorer
 ```
 
-Or simply open the file directly in your browser (note: some features may require a web server).
+**Note:** The app uses script tags instead of ES modules, allowing it to work from `file://` URLs without a web server.
 
 ### 2. Connect to Your Server
 
@@ -234,6 +232,24 @@ The file browser is designed to be extensible:
 - Use forward slashes (`/`) not backslashes
 
 ## Architecture
+
+### File Structure
+
+The app uses a single universal module file that works in both contexts:
+
+```
+client/apps/
+├── filebrowser.html   # Main application file
+├── client.js          # Universal module (ES module + script tag)
+└── README.md          # This file
+```
+
+**Note:** The `client.js` file is a universal module that:
+- Exports ES module exports (`export { Client, verifySignature, hashChallengeAnswer }`)
+- Also exports to `window.HomeChannelClient` when loaded via script tag
+- Contains all crypto utilities built-in (no separate crypto-browser.js needed)
+
+### System Architecture
 
 ```
 ┌─────────────┐         ┌──────────────┐         ┌──────────┐
