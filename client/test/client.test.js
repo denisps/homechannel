@@ -323,6 +323,8 @@ describe('Client API', () => {
     await client.createIframe();
     
     const promise = client.iframeRequest('test', { foo: 'bar' });
+    // Catch expected rejection when client disconnects in afterEach
+    promise.catch(() => {});
     
     assert.notStrictEqual(MockIframe.lastMessage, null);
     assert.strictEqual(MockIframe.lastMessage.type, 'request');
@@ -377,6 +379,8 @@ describe('Client API', () => {
     await client.createIframe();
     
     const promise = client.iframeRequest('test', {});
+    // Catch expected rejection when client disconnects in afterEach
+    promise.catch(() => {});
     const requestId = MockIframe.lastMessage.requestId;
     
     // Simulate response from wrong origin
