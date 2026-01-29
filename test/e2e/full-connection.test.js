@@ -37,14 +37,9 @@ describe('Full WebRTC Connection E2E', () => {
     await setTimeout(2000);
 
     // Launch browser for client testing
-    // Note: Playwright is optional - only run if installed
-    try {
-      browser = await chromium.launch();
-      context = await browser.newContext();
-      page = await context.newPage();
-    } catch (err) {
-      console.log('Playwright not available, skipping browser tests');
-    }
+    browser = await chromium.launch();
+    context = await browser.newContext();
+    page = await context.newPage();
   });
 
   after(async () => {
@@ -57,11 +52,6 @@ describe('Full WebRTC Connection E2E', () => {
   });
 
   it('should complete full connection establishment', async () => {
-    if (!page) {
-      console.log('Skipping: browser not available');
-      return;
-    }
-
     // Load client page
     await page.goto(`http://localhost:${coordinatorPort}/client.html`);
 
@@ -81,11 +71,6 @@ describe('Full WebRTC Connection E2E', () => {
   });
 
   it('should transfer data over WebRTC datachannel', async () => {
-    if (!page) {
-      console.log('Skipping: browser not available');
-      return;
-    }
-
     // Send test message
     const testMessage = { type: 'ping', timestamp: Date.now() };
     const response = await page.evaluate((msg) => {
@@ -108,18 +93,13 @@ describe('Full WebRTC Connection E2E', () => {
     }
 
     // Client should detect disconnection
-    if (page) {
-      const connectionState = await page.evaluate(() => {
-        return window.peerConnection?.connectionState || 'disconnected';
-      });
+    const connectionState = await page.evaluate(() => {
+      return window.peerConnection?.connectionState || 'disconnected';
+    });
 
-      assert.ok(
-        ['disconnected', 'failed', 'closed'].includes(connectionState),
-        'Should detect server disconnection'
-      );
-    } else {
-      // If no browser, just verify server is down
-      assert.ok(true, 'Server shutdown simulated');
-    }
+    assert.ok(
+      ['disconnected', 'failed', 'closed'].includes(connectionState),
+      'Should detect server disconnection'
+    );
   });
 });

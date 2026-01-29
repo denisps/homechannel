@@ -2,6 +2,17 @@
 
 This directory contains integration, end-to-end, and system tests that span multiple components of the HomeChannel system.
 
+## Installation
+
+Before running tests, install dependencies:
+
+```bash
+cd test
+npm install
+```
+
+This will install required dependencies including Playwright for browser-based E2E tests. Tests will fail if dependencies are not installed.
+
 ## Test Categories
 
 ### Integration Tests (`integration/`)
@@ -47,9 +58,17 @@ node --test test/integration/webrtc-flow.test.js
 
 ## Test Requirements
 
+### Installation
+```bash
+cd test
+npm install
+```
+
 ### Dependencies
-Most tests use Node.js built-in modules only. Some optional dependencies:
-- **playwright** - For browser-based E2E tests (optional, tests skip if not available)
+- **playwright** - Required for browser-based E2E tests (installed via npm)
+- **Node.js built-ins** - All other tests use only built-in modules
+
+Tests will fail if required dependencies are not installed. No mock implementations are used - all tests run against real component implementations.
 
 ### Prerequisites
 - Coordinator and server components must be available in the workspace

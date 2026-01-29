@@ -5,37 +5,37 @@
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert';
-import { spawn } from 'node:child_process';
+import { Coordinator } from '../../coordinator/index.js';
 import { setTimeout } from 'node:timers/promises';
 
 describe('Load Testing System Test', () => {
-  let coordinatorProcess;
-  let serverProcess;
+  let coordinator;
   const coordinatorPort = 13345;
 
   before(async () => {
-    // Start coordinator
-    coordinatorProcess = spawn('node', ['coordinator/index.js'], {
-      cwd: '/workspaces/homechannel',
-      env: {
-        ...process.env,
-        COORDINATOR_PORT: coordinatorPort
+    // Start coordinator programmatically
+    coordinator = new Coordinator({
+      privateKeyPath: './keys/coordinator.priv',
+      publicKeyPath: './keys/coordinator.pub',
+      serverTimeout: 30000,
+      maxServers: 100,
+      udp: {
+        port: 13346
+      },
+      https: {
+        port: coordinatorPort,
+        host: 'localhost'
       }
     });
 
-    await setTimeout(2000);
-
-    // Start server
-    serverProcess = spawn('node', ['server/index.js'], {
-      cwd: '/workspaces/homechannel'
-    });
-
-    await setTimeout(2000);
+    await coordinator.start();
+    await setTimeout(500);
   });
 
   after(async () => {
-    if (serverProcess) serverProcess.kill();
-    if (coordinatorProcess) coordinatorProcess.kill();
+    if (coordinator) {
+      await coordinator.stop();
+    }
     await setTimeout(500);
   });
 
@@ -45,7 +45,11 @@ describe('Load Testing System Test', () => {
 
     // Send burst of requests
     const requests = Array.from({ length: burstSize }, () =>
-      fetch(`http://localhost:${coordinatorPort}/servers`)
+      fetch(`http://localhost:${coordinatorPort}/api/servers`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ serverPublicKeys: [] })
+      })
         .then(res => res.json())
     );
 
@@ -73,7 +77,7 @@ describe('Load Testing System Test', () => {
 
     for (let i = 0; i < iterations; i++) {
       const start = Date.now();
-      await fetch(`http://localhost:${coordinatorPort}/health`);
+      await fetch(`http://localhost:${coordinatorPort}/api/coordinator-key`);
       responseTimes.push(Date.now() - start);
       await setTimeout(100);
     }
@@ -94,7 +98,11 @@ describe('Load Testing System Test', () => {
 
     // Generate sustained load
     for (let i = 0; i < iterations; i++) {
-      await fetch(`http://localhost:${coordinatorPort}/servers`);
+      await fetch(`http://localhost:${coordinatorPort}/api/servers`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ serverPublicKeys: [] })
+      });
       
       // Small delay to prevent overwhelming
       if (i % 10 === 0) {
@@ -125,7 +133,10 @@ describe('Load Testing System Test', () => {
     const timeout = 2000;
 
     const requests = Array.from({ length: connections }, () =>
-      fetch(`http://localhost:${coordinatorPort}/servers`, {
+      fetch(`http://localhost:${coordinatorPort}/api/servers`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ serverPublicKeys: [] }),
         signal: AbortSignal.timeout(timeout)
       })
         .then(res => res.json())

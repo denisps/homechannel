@@ -5,45 +5,49 @@
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert';
-import { spawn } from 'node:child_process';
+import { Coordinator } from '../../coordinator/index.js';
 import { setTimeout } from 'node:timers/promises';
 
 describe('Multiple Clients System Test', () => {
-  let coordinatorProcess;
-  let serverProcess;
+  let coordinator;
   const coordinatorPort = 13343;
   const clientCount = 5;
 
   before(async () => {
-    // Start coordinator
-    coordinatorProcess = spawn('node', ['coordinator/index.js'], {
-      cwd: '/workspaces/homechannel',
-      env: {
-        ...process.env,
-        COORDINATOR_PORT: coordinatorPort
+    // Start coordinator programmatically
+    coordinator = new Coordinator({
+      privateKeyPath: './keys/coordinator.priv',
+      publicKeyPath: './keys/coordinator.pub',
+      serverTimeout: 30000,
+      maxServers: 100,
+      udp: {
+        port: 13344
+      },
+      https: {
+        port: coordinatorPort,
+        host: 'localhost'
       }
     });
 
-    await setTimeout(2000);
-
-    // Start server
-    serverProcess = spawn('node', ['server/index.js'], {
-      cwd: '/workspaces/homechannel'
-    });
-
-    await setTimeout(2000);
+    await coordinator.start();
+    await setTimeout(500);
   });
 
   after(async () => {
-    if (serverProcess) serverProcess.kill();
-    if (coordinatorProcess) coordinatorProcess.kill();
+    if (coordinator) {
+      await coordinator.stop();
+    }
     await setTimeout(500);
   });
 
   it('should handle multiple concurrent client connections', async () => {
     // Simulate multiple clients requesting server list
     const requests = Array.from({ length: clientCount }, (_, i) =>
-      fetch(`http://localhost:${coordinatorPort}/servers`)
+      fetch(`http://localhost:${coordinatorPort}/api/servers`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ serverPublicKeys: [] })
+      })
         .then(res => res.json())
         .catch(err => ({ error: err.message, clientId: i }))
     );
@@ -65,7 +69,7 @@ describe('Multiple Clients System Test', () => {
     // Simulate sustained load
     for (let i = 0; i < iterations; i++) {
       const requests = Array.from({ length: clientCount }, () =>
-        fetch(`http://localhost:${coordinatorPort}/health`)
+        fetch(`http://localhost:${coordinatorPort}/api/coordinator-key`)
       );
       await Promise.all(requests);
     }
@@ -85,7 +89,11 @@ describe('Multiple Clients System Test', () => {
     
     for (let i = 0; i < clientCount; i++) {
       promises.push(
-        fetch(`http://localhost:${coordinatorPort}/servers`)
+        fetch(`http://localhost:${coordinatorPort}/api/servers`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ serverPublicKeys: [] })
+        })
           .then(() => setTimeout(Math.random() * 1000))
       );
     }
@@ -93,7 +101,7 @@ describe('Multiple Clients System Test', () => {
     await Promise.all(promises);
 
     // System should remain stable
-    const healthCheck = await fetch(`http://localhost:${coordinatorPort}/health`);
+    const healthCheck = await fetch(`http://localhost:${coordinatorPort}/api/coordinator-key`);
     assert.strictEqual(healthCheck.ok, true, 'System should remain healthy');
   });
 });
