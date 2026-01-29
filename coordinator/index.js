@@ -74,15 +74,20 @@ class Coordinator {
     console.log(`Max servers: ${this.config.maxServers}`);
     console.log(`Server timeout: ${this.config.serverTimeout}ms`);
 
-    // Log stats periodically
-    setInterval(() => {
+    // Log stats periodically (use unref to not prevent process exit)
+    this.statsInterval = setInterval(() => {
       const stats = this.registry.getStats();
       console.log(`Stats: ${stats.totalServers} servers, ${stats.connectionLogSize} connection logs`);
-    }, 60000);
+    }, 60000).unref();
   }
 
   async stop() {
     console.log('Stopping coordinator...');
+    
+    if (this.statsInterval) {
+      clearInterval(this.statsInterval);
+      this.statsInterval = null;
+    }
     
     if (this.httpsServer) {
       await this.httpsServer.stop();

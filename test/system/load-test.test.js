@@ -39,7 +39,7 @@ describe('Load Testing System Test', () => {
     await setTimeout(500);
   });
 
-  it('should handle burst traffic', async () => {
+  it('should handle burst traffic', { timeout: 10000 }, async () => {
     const burstSize = 50;
     const startTime = Date.now();
 
@@ -71,7 +71,7 @@ describe('Load Testing System Test', () => {
     );
   });
 
-  it('should maintain consistent response times under load', async () => {
+  it('should maintain consistent response times under load', { timeout: 10000 }, async () => {
     const iterations = 20;
     const responseTimes = [];
 
@@ -92,7 +92,7 @@ describe('Load Testing System Test', () => {
     assert.ok(variance < 200, `Response time variance should be < 200ms, got ${variance}ms`);
   });
 
-  it('should not leak memory under sustained load', async () => {
+  it('should not leak memory under sustained load', { timeout: 15000 }, async () => {
     const iterations = 100;
     const initialMemory = process.memoryUsage().heapUsed;
 
@@ -128,7 +128,7 @@ describe('Load Testing System Test', () => {
     );
   });
 
-  it('should handle concurrent long-polling connections', async () => {
+  it('should handle concurrent long-polling connections', { timeout: 10000 }, async () => {
     const connections = 10;
     const timeout = 2000;
 

@@ -51,7 +51,7 @@ describe('Full WebRTC Connection E2E', () => {
     await setTimeout(500);
   });
 
-  it('should complete full connection establishment', async () => {
+  it('should complete full connection establishment', { timeout: 10000 }, async () => {
     // Load client page
     await page.goto(`http://localhost:${coordinatorPort}/client.html`);
 
@@ -70,7 +70,7 @@ describe('Full WebRTC Connection E2E', () => {
     );
   });
 
-  it('should transfer data over WebRTC datachannel', async () => {
+  it('should transfer data over WebRTC datachannel', { timeout: 10000 }, async () => {
     // Send test message
     const testMessage = { type: 'ping', timestamp: Date.now() };
     const response = await page.evaluate((msg) => {
@@ -85,7 +85,7 @@ describe('Full WebRTC Connection E2E', () => {
     assert.ok(response, 'Should receive response from server');
   });
 
-  it('should handle connection failures gracefully', async () => {
+  it('should handle connection failures gracefully', { timeout: 10000 }, async () => {
     // Kill server to simulate failure
     if (serverProcess) {
       serverProcess.kill();

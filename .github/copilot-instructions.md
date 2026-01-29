@@ -72,10 +72,17 @@ Minimal-dependency WebRTC datachannel solution for remote home access. Pure Java
 1. **Branch:** `git checkout -b feature/name` or `fix/name`
 2. **Baseline test:** `npm test` (ensure passing)
 3. **Write tests** (TDD: test critical paths, errors, edge cases)
+   - **Always specify explicit timeouts** using `{ timeout: ms }` option:
+     - `it('test name', { timeout: 5000 }, async () => { ... })`
+     - Use appropriate timeouts: 3s for simple tests, 5-10s for integration, 10-15s for system tests
+   - Only use `setTimeout()` for actual delays in test logic (waiting for async operations), not as test timeouts
+   - Test timeout prevents the entire test from hanging
+   - `setTimeout()` for waiting is when you need a specific component behavior to complete
 4. **Implement** (async/await, error handling, meaningful messages)
 5. **Test:** `npm test` (verify implementation)
 6. **Review checklist:**
    - [ ] Tests pass, no sync file ops (fs.readFileSync, etc.)
+   - [ ] All tests have explicit `{ timeout: ms }` options
    - [ ] No blocking, async properly awaited
    - [ ] Error handling, input validation/sanitization
    - [ ] No console.log, no custom crypto
@@ -87,6 +94,25 @@ Minimal-dependency WebRTC datachannel solution for remote home access. Pure Java
 10. **Commit:** `git commit -m "feat: description"` or `"fix: description"`
 11. **Push:** `git push origin branch-name`
 12. **PR/merge** to main
+
+## Testing Guidelines
+
+**Test Timeouts:**
+- Always use explicit timeout option: `it('test', { timeout: 5000 }, async () => { ... })`
+- Recommended timeouts:
+  - Unit tests: 3000ms (3 seconds)
+  - Integration tests: 5000ms (5 seconds)
+  - E2E tests: 10000ms (10 seconds)
+  - System/load tests: 10000-15000ms (10-15 seconds)
+- Use `setTimeout()` only for actual delays in test logic (e.g., waiting for async operations to complete)
+- Never rely on default test timeout - always specify explicitly
+
+**Test Structure:**
+- Use Node.js built-in test runner (`node:test`)
+- Async/await for all async operations
+- Proper cleanup in `after()` hooks
+- Meaningful test descriptions
+- Test both success and error paths
 
 ### Quick Reference
 

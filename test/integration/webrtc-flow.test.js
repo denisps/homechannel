@@ -42,14 +42,14 @@ describe('WebRTC Connection Flow Integration', () => {
     await setTimeout(500);
   });
 
-  it('should start coordinator and respond to API requests', async () => {
+  it('should start coordinator and respond to API requests', { timeout: 5000 }, async () => {
     const response = await fetch(`http://localhost:${coordinatorPort}/api/coordinator-key`);
     assert.strictEqual(response.ok, true, 'Coordinator key API should respond');
     const data = await response.json();
     assert.ok(data.publicKey, 'Should return public key');
   });
 
-  it('should return empty server list for unknown keys', async () => {
+  it('should return empty server list for unknown keys', { timeout: 5000 }, async () => {
     const response = await fetch(`http://localhost:${coordinatorPort}/api/servers`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -63,7 +63,7 @@ describe('WebRTC Connection Flow Integration', () => {
     assert.strictEqual(data.servers.length, 0, 'Should be empty for unknown keys');
   });
 
-  it('should accept UDP messages on configured port', async () => {
+  it('should accept UDP messages on configured port', { timeout: 3000 }, async () => {
     // Verify UDP server is listening
     assert.ok(coordinator.udpServer, 'UDP server should be initialized');
     assert.ok(coordinator.udpServer.socket, 'UDP socket should be created');

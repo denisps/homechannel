@@ -40,7 +40,7 @@ describe('Multiple Clients System Test', () => {
     await setTimeout(500);
   });
 
-  it('should handle multiple concurrent client connections', async () => {
+  it('should handle multiple concurrent client connections', { timeout: 10000 }, async () => {
     // Simulate multiple clients requesting server list
     const requests = Array.from({ length: clientCount }, (_, i) =>
       fetch(`http://localhost:${coordinatorPort}/api/servers`, {
@@ -62,7 +62,7 @@ describe('Multiple Clients System Test', () => {
     );
   });
 
-  it('should maintain performance under concurrent load', async () => {
+  it('should maintain performance under concurrent load', { timeout: 15000 }, async () => {
     const iterations = 10;
     const startTime = Date.now();
 
@@ -83,7 +83,7 @@ describe('Multiple Clients System Test', () => {
     );
   });
 
-  it('should handle client disconnections gracefully', async () => {
+  it('should handle client disconnections gracefully', { timeout: 10000 }, async () => {
     // Simulate clients connecting and disconnecting
     const promises = [];
     

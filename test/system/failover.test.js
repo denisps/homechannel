@@ -39,7 +39,7 @@ describe('Failover and Recovery System Test', () => {
     await setTimeout(500);
   });
 
-  it('should handle coordinator restart gracefully', async () => {
+  it('should handle coordinator restart gracefully', { timeout: 15000 }, async () => {
     // Verify coordinator is running
     let response = await fetch(`http://localhost:${coordinatorPort}/api/coordinator-key`);
     assert.strictEqual(response.ok, true, 'Coordinator should be running');
@@ -70,7 +70,7 @@ describe('Failover and Recovery System Test', () => {
     assert.strictEqual(response.ok, true, 'Coordinator should be back online');
   });
 
-  it('should maintain data integrity during restarts', async () => {
+  it('should maintain data integrity during restarts', { timeout: 5000 }, async () => {
     // Verify coordinator state is consistent
     const response = await fetch(`http://localhost:${coordinatorPort}/api/servers`, {
       method: 'POST',
@@ -83,7 +83,7 @@ describe('Failover and Recovery System Test', () => {
     assert.ok(Array.isArray(servers), 'Server list should remain valid');
   });
 
-  it('should handle rapid successive requests', async () => {
+  it('should handle rapid successive requests', { timeout: 5000 }, async () => {
     // Send multiple requests in quick succession
     const requests = Array.from({ length: 20 }, () =>
       fetch(`http://localhost:${coordinatorPort}/api/coordinator-key`)

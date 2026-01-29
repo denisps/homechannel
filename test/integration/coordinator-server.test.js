@@ -33,7 +33,7 @@ describe('Coordinator-Server UDP Integration', () => {
     }
   });
 
-  it('should validate server registration message format', async () => {
+  it('should validate server registration message format', { timeout: 3000 }, async () => {
     // Validate message type constants exist
     assert.ok(MESSAGE_TYPES.REGISTER === 0x05, 'REGISTER message type should be defined');
     assert.ok(MESSAGE_TYPES.HELLO === 0x01, 'HELLO message type should be defined');
@@ -41,7 +41,7 @@ describe('Coordinator-Server UDP Integration', () => {
     assert.ok(serverKeys.privateKey, 'Should have generated private key');
   });
 
-  it('should handle encrypted payloads', async () => {
+  it('should handle encrypted payloads', { timeout: 3000 }, async () => {
     const testData = { action: 'test', timestamp: Date.now() };
     const key = deriveAESKey(Buffer.from('test-password'));
     
@@ -51,7 +51,7 @@ describe('Coordinator-Server UDP Integration', () => {
     assert.ok(encrypted.length >= 28, 'Should have IV (12) + authTag (16) + ciphertext');
   });
 
-  it('should validate protocol constants', async () => {
+  it('should validate protocol constants', { timeout: 3000 }, async () => {
     // Validate all message types are defined
     assert.ok(MESSAGE_TYPES.HELLO, 'HELLO message type exists');
     assert.ok(MESSAGE_TYPES.ECDH_INIT, 'ECDH_INIT message type exists');

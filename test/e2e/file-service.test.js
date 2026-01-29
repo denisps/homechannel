@@ -62,14 +62,14 @@ describe('File Service E2E', () => {
     await setTimeout(500);
   });
 
-  it('should list directory contents', async () => {
+  it('should list directory contents', { timeout: 5000 }, async () => {
     // This test requires WebRTC connection to be established
     // In a real implementation, this would use the WebRTC datachannel
     // For now, we validate the test setup
     assert.ok(testDir, 'Test directory should be created');
   });
 
-  it('should read file contents', async () => {
+  it('should read file contents', { timeout: 5000 }, async () => {
     // Validate test file exists
     const content = await import('node:fs/promises').then(fs => 
       fs.readFile(path.join(testDir, 'test.txt'), 'utf8')
@@ -77,7 +77,7 @@ describe('File Service E2E', () => {
     assert.strictEqual(content, 'Hello World', 'Test file should have correct content');
   });
 
-  it('should handle nested directory navigation', async () => {
+  it('should handle nested directory navigation', { timeout: 5000 }, async () => {
     // Validate nested structure exists
     const nestedContent = await import('node:fs/promises').then(fs => 
       fs.readFile(path.join(testDir, 'subdir', 'nested.txt'), 'utf8')
@@ -85,7 +85,7 @@ describe('File Service E2E', () => {
     assert.strictEqual(nestedContent, 'Nested content', 'Nested file should be accessible');
   });
 
-  it('should enforce security boundaries', async () => {
+  it('should enforce security boundaries', { timeout: 3000 }, async () => {
     // Attempt to access file outside allowed directory should fail
     const outsidePath = '../../../etc/passwd';
     
