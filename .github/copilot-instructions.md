@@ -70,7 +70,7 @@ Minimal-dependency WebRTC datachannel solution for remote home access. Pure Java
 ### Workflow Steps
 
 1. **Branch:** `git checkout -b feature/name` or `fix/name`
-2. **Baseline test:** `npm test` (ensure passing)
+2. **Baseline test:** `timeout 60 npm test` (ensure passing, never hang)
 3. **Write tests** (TDD: test critical paths, errors, edge cases)
    - **Always specify explicit timeouts** using `{ timeout: ms }` option:
      - `it('test name', { timeout: 5000 }, async () => { ... })`
@@ -79,7 +79,7 @@ Minimal-dependency WebRTC datachannel solution for remote home access. Pure Java
    - Test timeout prevents the entire test from hanging
    - `setTimeout()` for waiting is when you need a specific component behavior to complete
 4. **Implement** (async/await, error handling, meaningful messages)
-5. **Test:** `npm test` (verify implementation)
+5. **Test:** `timeout 60 npm test` (verify implementation, never hang)
 6. **Review checklist:**
    - [ ] Tests pass, no sync file ops (fs.readFileSync, etc.)
    - [ ] All tests have explicit `{ timeout: ms }` options
@@ -89,13 +89,21 @@ Minimal-dependency WebRTC datachannel solution for remote home access. Pure Java
    - [ ] Timing-safe secret comparisons, file perms 600 for keys
    - [ ] Clear, self-documenting code
 7. **Optimize** if needed (memory, copying, backpressure)
-8. **Retest:** `npm test`
+8. **Retest:** `timeout 60 npm test`
 9. **Update docs** (README, PROTOCOL, SECURITY, ARCHITECTURE as needed)
 10. **Commit:** `git commit -m "feat: description"` or `"fix: description"`
-11. **Push:** `git push origin branch-name`
-12. **PR/merge** to main
+11. **Push/PR:**
+    - Local agents: `git push origin branch-name` (then create PR manually)
+    - Unattended agents: Create pull request automatically (don't push directly)
+12. **Merge** after review
 
 ## Testing Guidelines
+
+**Running Tests:**
+- Always wrap test commands with timeout: `timeout 60 npm test`
+- Prevents agent/process from hanging indefinitely
+- Use appropriate timeout values: 30-60 seconds for most test suites
+- Tests themselves should have explicit `{ timeout: ms }` options
 
 **Test Timeouts:**
 - Always use explicit timeout option: `it('test', { timeout: 5000 }, async () => { ... })`
