@@ -57,8 +57,10 @@ describe('WebRTC Connection Flow Integration', () => {
     });
     assert.strictEqual(response.ok, true, 'Should be able to fetch server list');
     
-    const servers = await response.json();
-    assert.ok(Array.isArray(servers), 'Should return array of servers');
+    const data = await response.json();
+    assert.ok(data.servers, 'Should return servers property');
+    assert.ok(Array.isArray(data.servers), 'Servers should be an array');
+    assert.strictEqual(data.servers.length, 0, 'Should be empty for unknown keys');
   });
 
   it('should accept UDP messages on configured port', async () => {
