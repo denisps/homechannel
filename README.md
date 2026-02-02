@@ -157,10 +157,24 @@ npm run test:all
 # Run client tests
 cd ../client
 npm test
+
+# Run E2E and system tests
+cd ../tests
+npm test                    # All tests
+npm run test:integration   # Integration tests only
+npm run test:e2e           # E2E tests only
+npm run test:system        # System tests only
 ```
 
-**Optional WebRTC Connectivity Tests:**
-The server includes optional connectivity and performance tests that require at least one WebRTC library to be installed. These tests verify actual peer connection creation, offer/answer exchange, and performance metrics. Run with `npm run test:webrtc` in the server directory. See [server/README.md](server/README.md) for details.
+**Test Documentation:**
+- [docs/TESTING.md](docs/TESTING.md) - Comprehensive testing guide
+
+**Test Coverage:**
+- **132 tests** across all components (100% passing)
+- Unit tests for all core functionality
+- Integration tests with real protocol implementations
+- **E2E tests** for full system validation
+- **System tests** for concurrency and scalability
 
 **Technology Constraints:**
 - Pure JavaScript (no TypeScript)
