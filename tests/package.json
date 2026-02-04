@@ -5,15 +5,24 @@
   "type": "module",
   "scripts": {
     "test": "node --test **/*.test.js",
+    "test:deps": "npm install --no-save --include optional",
     "test:integration": "node --test integration/*.test.js",
     "test:e2e": "node --test e2e/*.test.js",
     "test:system": "node --test system/*.test.js",
     "test:all": "npm run test:integration && npm run test:e2e && npm run test:system"
   },
-  "keywords": ["test", "integration", "e2e", "system"],
+  "keywords": [
+    "test",
+    "integration",
+    "e2e",
+    "system"
+  ],
   "author": "",
   "license": "GPL-3.0",
   "engines": {
     "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "help": "^3.0.2"
   }
 }
