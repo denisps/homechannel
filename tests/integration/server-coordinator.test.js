@@ -35,6 +35,9 @@ describe('Server-Coordinator Integration', () => {
       if (udpServer) {
         await udpServer.stop();
       }
+      if (registry) {
+        registry.destroy();
+      }
     });
   });
 
@@ -61,8 +64,15 @@ describe('Server-Coordinator Integration', () => {
     });
     
     cleanup.add(async () => {
-      if (client && client.socket) {
-        client.socket.close();
+      if (client) {
+        try {
+          await client.stop();
+        } catch (err) {
+          // If stop fails, try to close socket directly
+          if (client.socket) {
+            client.socket.close();
+          }
+        }
       }
     });
     
@@ -79,7 +89,7 @@ describe('Server-Coordinator Integration', () => {
     
     // Verify server is in registry
     const serverKey = `127.0.0.1:${client.socket.address().port}`;
-    const server = registry.getServer(serverKey);
+    const server = registry.getServerByIpPort(serverKey);
     
     assert.ok(server, 'Server should be registered');
     assert.strictEqual(typeof server.challenge, 'string', 'Challenge should be string');
@@ -95,10 +105,21 @@ describe('Server-Coordinator Integration', () => {
       serverKeys,
       {
         coordinatorPublicKey: coordinatorKeys.publicKey,
-        keepaliveIntervalMs: 500, // Short interval for testing
+        keepaliveIntervalMs: 200, // Short interval for testing
         heartbeatIntervalMs: 60000 // Long interval to avoid interference
       }
     );
+    
+    // Track ping messages received by coordinator
+    let pingsReceived = 0;
+    const originalHandleMessage = udpServer.handleMessage.bind(udpServer);
+    udpServer.handleMessage = (msg, rinfo) => {
+      // PING messages have type 0x06 at byte position 1
+      if (msg.length >= 2 && msg[1] === 0x06) {
+        pingsReceived++;
+      }
+      return originalHandleMessage(msg, rinfo);
+    };
     
     // Track registration event
     const registrationPromise = new Promise((resolve) => {
@@ -106,8 +127,17 @@ describe('Server-Coordinator Integration', () => {
     });
     
     cleanup.add(async () => {
-      if (client && client.socket) {
-        client.socket.close();
+      // Restore original handler
+      udpServer.handleMessage = originalHandleMessage;
+      if (client) {
+        try {
+          await client.stop();
+        } catch (err) {
+          // If stop fails, try to close socket directly
+          if (client.socket) {
+            client.socket.close();
+          }
+        }
       }
     });
     
@@ -122,15 +152,23 @@ describe('Server-Coordinator Integration', () => {
     ]);
     
     const serverKey = `127.0.0.1:${client.socket.address().port}`;
-    const server = registry.getServer(serverKey);
-    const initialTimestamp = server.lastSeen;
+    const server = registry.getServerByIpPort(serverKey);
+    const initialTimestamp = server.timestamp;
     
-    // Wait for ping to update timestamp
+    // Wait for multiple pings to be sent (200ms interval, wait 1s = ~5 pings expected)
     await new Promise(resolve => setTimeout(resolve, 1000));
     
-    const updatedServer = registry.getServer(serverKey);
+    const updatedServer = registry.getServerByIpPort(serverKey);
+    
+    // Verify actual ping messages were received (not just timestamp changed)
     assert.ok(
-      updatedServer.lastSeen > initialTimestamp,
+      pingsReceived >= 3,
+      `Should receive at least 3 pings, got ${pingsReceived}`
+    );
+    
+    // Also verify timestamp is being updated
+    assert.ok(
+      updatedServer.timestamp > initialTimestamp,
       'Timestamp should be updated after ping'
     );
   });
@@ -167,8 +205,15 @@ describe('Server-Coordinator Integration', () => {
     });
     
     cleanup.add(async () => {
-      if (client && client.socket) {
-        client.socket.close();
+      if (client) {
+        try {
+          await client.stop();
+        } catch (err) {
+          // If stop fails, try to close socket directly
+          if (client.socket) {
+            client.socket.close();
+          }
+        }
       }
     });
     

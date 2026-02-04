@@ -647,7 +647,7 @@ export class UDPServer {
   constructor(registry, coordinatorKeys, options = {}) {
     this.registry = registry;
     this.coordinatorKeys = coordinatorKeys;
-    this.port = options.port || 3478;
+    this.port = options.port !== undefined ? options.port : 3478;
     this.socket = null;
     this.messageHandlers = new Map();
     

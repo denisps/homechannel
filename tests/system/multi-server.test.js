@@ -55,7 +55,11 @@ describe('System Test: Multi-Server Connections', () => {
         'localhost',
         coordinatorPort,
         serverKeys,
-        { coordinatorPublicKey: coordinatorKeys.publicKey }
+        { 
+          coordinatorPublicKey: coordinatorKeys.publicKey,
+          keepaliveIntervalMs: 500, // Short interval for testing keepalive
+          heartbeatIntervalMs: 60000 // Long interval to avoid interference
+        }
       );
       
       clients.push(client);
@@ -85,8 +89,37 @@ describe('System Test: Multi-Server Connections', () => {
   });
 
   test('should maintain all connections with keepalive', async () => {
-    // Wait for a keepalive cycle
+    // Track ping messages received by coordinator from each client
+    const pingCountByClient = new Map();
+    
+    // Set up ping counting
+    const originalHandleMessage = udpServer.handleMessage.bind(udpServer);
+    udpServer.handleMessage = (msg, rinfo) => {
+      // PING messages have type 0x06 at byte position 1
+      if (msg.length >= 2 && msg[1] === 0x06) {
+        const clientKey = `${rinfo.address}:${rinfo.port}`;
+        pingCountByClient.set(clientKey, (pingCountByClient.get(clientKey) || 0) + 1);
+      }
+      return originalHandleMessage(msg, rinfo);
+    };
+
+    // Wait for keepalive pings (with short interval set by clients)
     await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    // Restore original handler
+    udpServer.handleMessage = originalHandleMessage;
+
+    // Verify actual ping messages were received from clients (not just checking socket state)
+    let totalPingsReceived = 0;
+    for (const count of pingCountByClient.values()) {
+      totalPingsReceived += count;
+    }
+    
+    // Each client should have sent at least one ping during the 2 second wait
+    assert.ok(
+      totalPingsReceived >= clients.length,
+      `Should receive at least ${clients.length} total pings (one per client), got ${totalPingsReceived}`
+    );
 
     // All clients should still be running
     for (const client of clients) {
