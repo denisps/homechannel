@@ -283,7 +283,7 @@ GET /api/coordinator-key
 
 Response:
 {
-  publicKey: '-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----',
+  publicKey: 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE...', // Base64 (unwrapped, no PEM headers)
   signature: 'self-signed-for-verification'
 }
 ```

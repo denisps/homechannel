@@ -42,7 +42,8 @@ import {
   encodeHelloAck,
   decodeHelloAck,
   encodeECDHInit,
-  decodeECDHResponse
+  decodeECDHResponse,
+  unwrapPublicKey
 } from '../../shared/crypto.js';
 import { generateECDSAKeyPair } from '../../shared/keys.js';
 
@@ -177,13 +178,16 @@ class MockServer {
       decoded.ecdhPublicKey     // Coordinator's ECDH public key
     ]);
     
+    // Use unwrapped (base64) key in message for efficiency
+    const unwrappedPublicKey = unwrapPublicKey(this.serverPublicKey);
+
     const regMessage = {
-      serverPublicKey: this.serverPublicKey,
+      serverPublicKey: unwrappedPublicKey,
       timestamp: regTimestamp,
       payload: regPayload,
       signature: signData({ 
         ecdhKeys: ecdhKeysData.toString('hex'),
-        serverPublicKey: this.serverPublicKey, 
+        serverPublicKey: unwrappedPublicKey, 
         timestamp: regTimestamp, 
         payload: regPayload 
       }, this.serverPrivateKey)
@@ -216,17 +220,21 @@ class MockServer {
 
   sendAnswer(coordinatorPort, expectedAnswer, sessionId, sdp, candidates) {
     const payload = { sdp, candidates };
+    const timestamp = Date.now();
+    
+    // Use unwrapped (base64) key for efficiency
+    const unwrappedPublicKey = unwrapPublicKey(this.serverPublicKey);
 
     const message = {
       type: 'answer',
-      serverPublicKey: this.serverPublicKey,
+      serverPublicKey: unwrappedPublicKey,
       sessionId,
-      timestamp: Date.now(),
+      timestamp,
       payload,
       signature: signData({ 
-        serverPublicKey: this.serverPublicKey, 
+        serverPublicKey: unwrappedPublicKey, 
         sessionId, 
-        timestamp: Date.now(), 
+        timestamp, 
         payload 
       }, this.serverPrivateKey)
     };
@@ -438,7 +446,7 @@ describe('Coordinator with Mock Server', () => {
 
     assert.strictEqual(registered, true);
 
-    const server = registry.getServerByPublicKey(mockServer.serverPublicKey);
+    const server = registry.getServerByPublicKey(unwrapPublicKey(mockServer.serverPublicKey));
     assert.ok(server);
     assert.strictEqual(server.challenge, challenge);
     assert.strictEqual(server.expectedAnswer, expectedAnswer);
@@ -455,8 +463,8 @@ describe('Coordinator with Mock Server', () => {
       'Registration processing timed out'
     );
 
-    const ipPort = registry.getServerByPublicKey(mockServer.serverPublicKey).ipPort;
-    const timestampBefore = registry.getServerByPublicKey(mockServer.serverPublicKey).timestamp;
+    const ipPort = registry.getServerByPublicKey(unwrapPublicKey(mockServer.serverPublicKey)).ipPort;
+    const timestampBefore = registry.getServerByPublicKey(unwrapPublicKey(mockServer.serverPublicKey)).timestamp;
 
     // Wait a bit
     await new Promise(resolve => setTimeout(resolve, 50));
@@ -469,7 +477,7 @@ describe('Coordinator with Mock Server', () => {
       'Ping processing timed out'
     );
 
-    const timestampAfter = registry.getServerByPublicKey(mockServer.serverPublicKey).timestamp;
+    const timestampAfter = registry.getServerByPublicKey(unwrapPublicKey(mockServer.serverPublicKey)).timestamp;
     assert.ok(timestampAfter > timestampBefore, 'Timestamp should be updated after ping');
   });
 
@@ -502,7 +510,7 @@ describe('Coordinator with Mock Server', () => {
 
     assert.strictEqual(heartbeatReceived, true);
 
-    const server = registry.getServerByPublicKey(mockServer.serverPublicKey);
+    const server = registry.getServerByPublicKey(unwrapPublicKey(mockServer.serverPublicKey));
     assert.strictEqual(server.challenge, challenge2);
     assert.strictEqual(server.expectedAnswer, expectedAnswer2);
   });

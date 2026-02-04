@@ -94,7 +94,7 @@ describe('HTTPS Server', () => {
       assert.ok(response.data.publicKey);
       assert.ok(response.data.signature);
       
-      // Verify signature
+      // Verify signature (response is base64, sign with wrapped PEM for verification)
       const data = { publicKey: response.data.publicKey };
       const isValid = verifySignature(data, response.data.signature, coordinatorKeys.publicKey);
       assert.ok(isValid, 'Signature should be valid');

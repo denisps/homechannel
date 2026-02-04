@@ -13,7 +13,7 @@ import { HTTPSServer } from '../../coordinator/https.js';
 import { ServerRegistry } from '../../coordinator/registry.js';
 import { UDPServer } from '../../shared/protocol.js';
 import { generateECDSAKeyPair } from '../../shared/keys.js';
-import { generateChallenge, hashChallengeAnswer, signData } from '../../shared/crypto.js';
+import { generateChallenge, hashChallengeAnswer, signData, unwrapPublicKey } from '../../shared/crypto.js';
 import { generateSelfSignedCertificate, isOpenSSLAvailable } from '../../shared/tls.js';
 
 describe('Client-Coordinator HTTPS Integration', () => {
@@ -85,7 +85,8 @@ describe('Client-Coordinator HTTPS Integration', () => {
     assert.strictEqual(response.statusCode, 200);
     assert.ok(response.body.publicKey, 'Should have publicKey');
     assert.ok(response.body.signature, 'Should have signature');
-    assert.ok(response.body.publicKey.includes('BEGIN PUBLIC KEY'), 'Should be PEM format');
+    assert.ok(!response.body.publicKey.includes('BEGIN PUBLIC KEY'), 'Should be base64 format (unwrapped)');
+    assert.ok(response.body.publicKey.length > 50, 'Should have substantial base64 content');
   });
 
   test('POST /api/servers lists registered servers', async () => {
@@ -95,10 +96,12 @@ describe('Client-Coordinator HTTPS Integration', () => {
     const expectedAnswer = hashChallengeAnswer(challenge, 'test-password');
     const serverIpPort = '192.168.1.100:12345';
     
-    registry.register(serverKeys.publicKey, serverIpPort, challenge, expectedAnswer);
+    // Registry stores base64 keys (unwrapped)
+    const serverKeyBase64 = unwrapPublicKey(serverKeys.publicKey);
+    registry.register(serverKeyBase64, serverIpPort, challenge, expectedAnswer);
     
     const response = await makeRequest('POST', '/api/servers', {
-      serverPublicKeys: [serverKeys.publicKey],
+      serverPublicKeys: [serverKeys.publicKey], // Send PEM (will be unwrapped by server)
       timestamp: Date.now()
     });
     
@@ -106,7 +109,7 @@ describe('Client-Coordinator HTTPS Integration', () => {
     assert.ok(Array.isArray(response.body.servers), 'Should have servers array');
     assert.ok(response.body.signature, 'Should have signature');
     
-    const server = response.body.servers.find(s => s.publicKeyHash === serverKeys.publicKey);
+    const server = response.body.servers.find(s => s.publicKeyHash === serverKeyBase64);
     assert.ok(server, 'Should find registered server');
     assert.strictEqual(server.online, true, 'Server should be online');
     assert.strictEqual(server.challenge, challenge);
@@ -120,7 +123,9 @@ describe('Client-Coordinator HTTPS Integration', () => {
     const expectedAnswer = hashChallengeAnswer(challenge, password);
     const serverIpPort = '192.168.1.100:12346';
     
-    registry.register(serverKeys.publicKey, serverIpPort, challenge, expectedAnswer);
+    // Registry stores base64 keys (unwrapped)
+    const serverKeyBase64 = unwrapPublicKey(serverKeys.publicKey);
+    registry.register(serverKeyBase64, serverIpPort, challenge, expectedAnswer);
     
     // Use the same expectedAnswer as the challenge answer (hashed password)
     const response = await makeRequest('POST', '/api/connect', {
@@ -146,7 +151,9 @@ describe('Client-Coordinator HTTPS Integration', () => {
     const expectedAnswer = hashChallengeAnswer(challenge, password);
     const serverIpPort = '192.168.1.100:12347';
     
-    registry.register(serverKeys.publicKey, serverIpPort, challenge, expectedAnswer);
+    // Registry stores base64 keys (unwrapped)
+    const serverKeyBase64 = unwrapPublicKey(serverKeys.publicKey);
+    registry.register(serverKeyBase64, serverIpPort, challenge, expectedAnswer);
     
     // Wrong challenge answer
     const wrongAnswer = hashChallengeAnswer(challenge, 'wrong-password');
@@ -173,7 +180,9 @@ describe('Client-Coordinator HTTPS Integration', () => {
     const expectedAnswer = hashChallengeAnswer(challenge, password);
     const serverIpPort = '192.168.1.100:12348';
     
-    registry.register(serverKeys.publicKey, serverIpPort, challenge, expectedAnswer);
+    // Registry stores base64 keys (unwrapped)
+    const serverKeyBase64 = unwrapPublicKey(serverKeys.publicKey);
+    registry.register(serverKeyBase64, serverIpPort, challenge, expectedAnswer);
     
     // Create connection
     const connectResponse = await makeRequest('POST', '/api/connect', {

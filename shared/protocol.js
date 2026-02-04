@@ -18,7 +18,9 @@ import {
   encodeECDHResponse,
   decodeECDHResponse,
   generateChallenge,
-  hashChallengeAnswer
+  hashChallengeAnswer,
+  unwrapPublicKey,
+  wrapPublicKey
 } from './crypto.js';
 
 // Shared protocol constants for HomeChannel UDP messaging
@@ -334,9 +336,12 @@ export class UDPClient {
 
       const timestamp = Date.now();
 
+      // Use unwrapped (base64) key consistently in signature and payload
+      const unwrappedPublicKey = unwrapPublicKey(this.serverKeys.publicKey);
+
       const signatureData = {
         ecdhKeys: ecdhKeysData.toString('hex'),
-        serverPublicKey: this.serverKeys.publicKey,
+        serverPublicKey: unwrappedPublicKey,
         timestamp,
         payload: registrationPayload
       };
@@ -344,8 +349,9 @@ export class UDPClient {
       const signature = signData(signatureData, this.serverKeys.privateKey);
 
       // Encrypt registration with shared secret
+      // Send unwrapped public key (base64 only) for efficiency
       const fullPayload = {
-        serverPublicKey: this.serverKeys.publicKey,
+        serverPublicKey: unwrappedPublicKey,
         timestamp,
         payload: registrationPayload,
         signature
@@ -582,14 +588,38 @@ export class UDPClient {
     }
 
     try {
-      const answerData = {
-        type: 'answer',
-        sdp: sdpAnswer
+      const sessionId = sdpAnswer.sessionId || 'unknown';
+      const timestamp = Date.now();
+      const payload = { 
+        sdp: sdpAnswer.sdp || sdpAnswer,
+        candidates: sdpAnswer.candidates || []
       };
 
-      const payload = encryptAES(answerData, this.aesKey);
+      // Use unwrapped (base64) key consistently in signature and payload
+      const unwrappedPublicKey = unwrapPublicKey(this.serverKeys.publicKey);
 
-      const message = buildUDPMessage(MESSAGE_TYPES.ANSWER, payload);
+      // Sign the answer
+      const dataToSign = {
+        serverPublicKey: unwrappedPublicKey,
+        sessionId,
+        timestamp,
+        payload
+      };
+      const signature = signData(dataToSign, this.serverKeys.privateKey);
+
+      // Send unwrapped public key (base64 only) for efficiency
+      const answerData = {
+        type: 'answer',
+        serverPublicKey: unwrappedPublicKey,
+        sessionId,
+        timestamp,
+        payload,
+        signature
+      };
+
+      const encryptedPayload = encryptAES(answerData, this.aesKey);
+
+      const message = buildUDPMessage(MESSAGE_TYPES.ANSWER, encryptedPayload);
 
       this.socket.send(message, this.coordinatorPort, this.coordinatorHost, (err) => {
         if (err) {
@@ -912,12 +942,15 @@ export class UDPServer {
       // Decrypt registration message
       const message = decryptAES(payload, key);
       
-      const { serverPublicKey, timestamp, payload: regPayload, signature } = message;
+      const { serverPublicKey: base64PublicKey, timestamp, payload: regPayload, signature } = message;
 
-      if (!serverPublicKey || !regPayload || !signature) {
+      if (!base64PublicKey || !regPayload || !signature) {
         console.error('Invalid registration message');
         return;
       }
+
+      // Wrap received base64 key to PEM for verification
+      const serverPublicKey = wrapPublicKey(base64PublicKey);
 
       // Verify server's ECDSA signature on both ECDH public keys
       const ecdhKeysData = Buffer.concat([
@@ -925,12 +958,14 @@ export class UDPServer {
         session.ecdhKeys.publicKey
       ]);
       
+      // Verify with base64 key (what was actually signed)
       const dataToVerify = { 
         ecdhKeys: ecdhKeysData.toString('hex'),
-        serverPublicKey, 
+        serverPublicKey: base64PublicKey, 
         timestamp, 
         payload: regPayload 
       };
+      // But verify signature using PEM format (what crypto.verify expects)
       if (!verifySignature(dataToVerify, signature, serverPublicKey)) {
         console.error('Invalid signature in registration');
         return;
@@ -939,8 +974,9 @@ export class UDPServer {
       // Register server
       const { challenge, challengeAnswerHash } = regPayload;
       try {
-        this.registry.register(serverPublicKey, ipPort, challenge, challengeAnswerHash);
-        console.log(`Server registered: ${serverPublicKey.substring(0, 20)}... at ${ipPort}`);
+        // Store unwrapped (base64) key in registry for efficiency
+        this.registry.register(base64PublicKey, ipPort, challenge, challengeAnswerHash);
+        console.log(`Server registered: ${base64PublicKey.substring(0, 20)}... at ${ipPort}`);
 
         // Send acknowledgment (encrypted with shared secret)
         const ackMessage = { status: 'ok', type: 'register' };
@@ -1037,15 +1073,19 @@ export class UDPServer {
       const key = deriveAESKey(expectedAnswer);
       const message = decryptAES(payload, key);
 
-      const { serverPublicKey, sessionId, timestamp, payload: answerPayload, signature } = message;
+      const { serverPublicKey: base64PublicKey, sessionId, timestamp, payload: answerPayload, signature } = message;
 
-      if (!serverPublicKey || !sessionId || !answerPayload || !signature) {
+      if (!base64PublicKey || !sessionId || !answerPayload || !signature) {
         console.error('Invalid answer message');
         return;
       }
 
-      // Verify ECDSA signature
-      const dataToVerify = { serverPublicKey, sessionId, timestamp, payload: answerPayload };
+      // Wrap received base64 key to PEM for verification
+      const serverPublicKey = wrapPublicKey(base64PublicKey);
+
+      // Verify ECDSA signature (verify with base64 key, what was actually signed)
+      const dataToVerify = { serverPublicKey: base64PublicKey, sessionId, timestamp, payload: answerPayload };
+      // But verify signature using PEM format (what crypto.verify expects)
       if (!verifySignature(dataToVerify, signature, serverPublicKey)) {
         console.error('Invalid signature in answer');
         return;

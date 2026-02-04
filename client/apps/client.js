@@ -25,14 +25,22 @@ const cryptoAPI = globalThis.crypto;
   }
 
   /**
-   * Convert PEM public key to CryptoKey for ECDSA verification
+   * Convert PEM or base64 public key to CryptoKey for ECDSA verification
    */
-  async function importPublicKey(pemKey) {
-    // Remove PEM header/footer and decode base64
-    const pemContents = pemKey
-      .replace('-----BEGIN PUBLIC KEY-----', '')
-      .replace('-----END PUBLIC KEY-----', '')
-      .replace(/\s/g, '');
+  async function importPublicKey(key) {
+    let pemContents;
+    
+    // Check if it's already PEM format or raw base64
+    if (key.includes('-----BEGIN PUBLIC KEY-----')) {
+      // PEM format - strip headers/footers
+      pemContents = key
+        .replace('-----BEGIN PUBLIC KEY-----', '')
+        .replace('-----END PUBLIC KEY-----', '')
+        .replace(/\s/g, '');
+    } else {
+      // Raw base64 format (already unwrapped)
+      pemContents = key.replace(/\s/g, '');
+    }
     
     const binaryDer = Uint8Array.from(base64Decode(pemContents), c => c.charCodeAt(0));
     
@@ -51,9 +59,9 @@ const cryptoAPI = globalThis.crypto;
   /**
    * Verify ECDSA signature (browser version)
    */
-  async function verifySignature(data, signature, publicKeyPem) {
+  async function verifySignature(data, signature, publicKey) {
     try {
-      const publicKey = await importPublicKey(publicKeyPem);
+      const cryptoKey = await importPublicKey(publicKey);
       const encoder = new TextEncoder();
       const dataBuffer = encoder.encode(JSON.stringify(data));
       const signatureBuffer = hexToBytes(signature);
@@ -63,7 +71,7 @@ const cryptoAPI = globalThis.crypto;
           name: 'ECDSA',
           hash: 'SHA-256'
         },
-        publicKey,
+        cryptoKey,
         signatureBuffer,
         dataBuffer
       );

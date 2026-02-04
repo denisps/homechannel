@@ -154,6 +154,25 @@ export function decryptAES(encryptedBuffer, key) {
 }
 
 /**
+ * Unwrap PEM public key to base64 (removes headers, footers, newlines)
+ * For efficient network transmission and storage
+ */
+export function unwrapPublicKey(pemKey) {
+  return pemKey
+    .replace(/-----BEGIN PUBLIC KEY-----/g, '')
+    .replace(/-----END PUBLIC KEY-----/g, '')
+    .replace(/\s/g, '');
+}
+
+/**
+ * Wrap base64 public key back to PEM format
+ * For use with Node.js crypto operations
+ */
+export function wrapPublicKey(base64Key) {
+  return `-----BEGIN PUBLIC KEY-----\n${base64Key}\n-----END PUBLIC KEY-----`;
+}
+
+/**
  * Sign binary data with ECDSA (for ECDH keys)
  */
 export function signBinaryData(data, privateKey) {

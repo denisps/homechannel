@@ -1,7 +1,8 @@
 /**
  * Memory-compact server registry with dual-index for O(1) lookups
- * Map: serverPublicKey -> { ipPort, challenge, expectedAnswer, timestamp }
- * Index: ipPort -> serverPublicKey (for fast reverse lookup)
+ * Map: serverPublicKey (base64) -> { ipPort, challenge, expectedAnswer, timestamp }
+ * Index: ipPort -> serverPublicKey (base64) (for fast reverse lookup)
+ * Note: Keys stored as base64 (without PEM headers) for memory efficiency
  */
 
 export class ServerRegistry {

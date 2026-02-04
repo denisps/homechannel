@@ -2,7 +2,7 @@ import http from 'http';
 import https from 'https';
 import crypto from 'crypto';
 import fs from 'fs';
-import { signData, hashChallengeAnswer } from '../shared/crypto.js';
+import { signData, hashChallengeAnswer, unwrapPublicKey } from '../shared/crypto.js';
 
 /**
  * HTTPS server for client-coordinator communication
@@ -262,14 +262,15 @@ export class HTTPSServer {
    * Returns coordinator's ECDSA public key with self-signature
    */
   async handleGetCoordinatorKey(req, res) {
-    const publicKeyPem = this.coordinatorKeys.publicKey;
+    // Send unwrapped (base64) key for network efficiency
+    const publicKeyBase64 = unwrapPublicKey(this.coordinatorKeys.publicKey);
     
-    // Create self-signature
-    const data = { publicKey: publicKeyPem };
+    // Create self-signature (sign the base64 version)
+    const data = { publicKey: publicKeyBase64 };
     const signature = signData(data, this.coordinatorKeys.privateKey);
     
     this.sendJSON(res, 200, {
-      publicKey: publicKeyPem,
+      publicKey: publicKeyBase64,
       signature
     });
   }
@@ -290,15 +291,17 @@ export class HTTPSServer {
       
       const servers = [];
       
-      for (const keyHash of serverPublicKeys) {
-        const server = this.registry.getServerByPublicKey(keyHash);
+      for (const keyPem of serverPublicKeys) {
+        // Convert PEM to base64 for registry lookup
+        const keyBase64 = unwrapPublicKey(keyPem);
+        const server = this.registry.getServerByPublicKey(keyBase64);
         if (server) {
           const now = Date.now();
           const isOnline = (now - server.timestamp) < 60000; // Online if seen in last 60s
           
           servers.push({
-            publicKeyHash: keyHash,
-            name: keyHash.substring(0, 16) + '...', // Truncated hash as name
+            publicKeyHash: keyBase64,
+            name: keyBase64.substring(0, 16) + '...', // Truncated hash as name
             online: isOnline,
             challenge: server.challenge
           });
@@ -325,10 +328,10 @@ export class HTTPSServer {
   async handleConnect(req, res) {
     try {
       const body = await this.readBody(req);
-      const { serverPublicKey, challengeAnswer, payload, timestamp } = body;
+      const { serverPublicKey: serverPublicKeyPem, challengeAnswer, payload, timestamp } = body;
       
       // Validate input
-      if (!serverPublicKey || !challengeAnswer || !payload) {
+      if (!serverPublicKeyPem || !challengeAnswer || !payload) {
         this.sendError(res, 400, 'Missing required fields');
         return;
       }
@@ -343,6 +346,9 @@ export class HTTPSServer {
         this.sendError(res, 400, 'Invalid or expired timestamp');
         return;
       }
+      
+      // Convert PEM to base64 for registry lookup
+      const serverPublicKey = unwrapPublicKey(serverPublicKeyPem);
       
       // Get server info
       const server = this.registry.getServerByPublicKey(serverPublicKey);
