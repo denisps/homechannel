@@ -36,6 +36,19 @@ Minimal-dependency WebRTC datachannel solution for remote home access. Pure Java
 - File permissions 600 for private keys
 - Never commit secrets
 
+**Files to NEVER Commit:**
+- `node_modules/` - Dependencies (already in .gitignore)
+- `package-lock.json` - Lock files (use --no-save for test deps)
+- `*.key`, `*.pem` - Private keys (already in .gitignore)
+- `config.json` - Configuration files (already in .gitignore)
+- `*.log` - Log files (already in .gitignore)
+- `coverage/`, `dist/`, `build/` - Build artifacts (already in .gitignore)
+
+**Test Dependencies:**
+- WebRTC libraries (`werift`, `wrtc`, `node-datachannel`) are optional
+- Install with `npm install --no-save` to avoid changing package.json
+- Never commit `package-lock.json` files for test dependencies
+
 ## Coding Standards
 
 **JavaScript:**
@@ -90,6 +103,6 @@ Minimal-dependency WebRTC datachannel solution for remote home access. Pure Java
 
 ### Quick Reference
 
-**Forbidden:** Heavy frameworks, WebSockets, build tools, TypeScript, custom crypto, secrets in commits, sync file ops, blocking event loop, console.log in production
+**Forbidden:** Heavy frameworks, WebSockets, build tools, TypeScript, custom crypto, secrets in commits, sync file ops, blocking event loop, console.log in production, committing node_modules, committing package-lock.json, committing test dependencies
 
-**Required:** Node.js built-ins, async I/O, error handling, ECDSA signatures, AES-GCM encryption, input validation, tests, semantic versioning, simple maintainable code
+**Required:** Node.js built-ins, async I/O, error handling, ECDSA signatures, AES-GCM encryption, input validation, tests, semantic versioning, simple maintainable code, `--no-save` flag when installing test dependencies

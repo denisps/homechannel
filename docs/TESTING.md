@@ -284,15 +284,62 @@ If tests hang:
 3. Use timeouts for long-running operations
 4. Check for unclosed sockets or processes
 
-### WebRTC Tests
+### WebRTC Library Dependencies
 
-WebRTC connectivity tests require at least one library:
+**Important:** System tests, integration tests, E2E tests, and server WebRTC tests require WebRTC libraries to be installed. These are **optional dependencies** and should be installed without modifying `package.json`.
+
+#### Installing WebRTC Libraries
+
+Install all supported libraries for your platform using `--no-save` flag:
+
+```bash
+# For server tests
+cd server
+npm install --no-save werift wrtc node-datachannel
+
+# For E2E and system tests
+cd tests
+npm install --no-save werift wrtc node-datachannel
+```
+
+**Platform Notes:**
+- **Linux/macOS:** All three libraries should install successfully
+- **Windows:** `wrtc` and `node-datachannel` require build tools:
+  ```bash
+  npm install --global windows-build-tools
+  ```
+- **Alpine Linux:** Native modules may not work; use `werift` only
+- **ARM (Raspberry Pi):** `werift` works reliably; others may require compilation
+
+#### Installing Single Library
+
+For minimal setup, install just `werift` (pure JavaScript, no compilation):
 
 ```bash
 cd server
-npm install werift  # or wrtc, or node-datachannel
-npm run test:webrtc
+npm install --no-save werift
+
+cd tests
+npm install --no-save werift
 ```
+
+#### Running WebRTC Tests
+
+```bash
+# Server WebRTC connectivity tests
+cd server
+npm run test:webrtc
+
+# E2E and system tests (require WebRTC libraries)
+cd tests
+npm test
+```
+
+**Why `--no-save`?**
+- Prevents modifying `package.json` or `package-lock.json`
+- Keeps dependencies local to your environment
+- Avoids committing platform-specific binaries
+- Test libraries are listed as optional dependencies already
 
 ## Best Practices
 

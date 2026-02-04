@@ -2,6 +2,10 @@
 node_modules/
 **/node_modules/
 
+# Package locks (use --no-save for test dependencies)
+package-lock.json
+**/package-lock.json
+
 # Logs
 *.log
 npm-debug.log*
