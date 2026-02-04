@@ -54,51 +54,8 @@ export class HTTPSServer {
     };
   }
 
-  /**
-   * Generate self-signed certificate for development/testing
-   * Returns certificate and key as strings
-   */
-  generateSelfSignedCertificate() {
-    // Generate RSA key pair for TLS
-    const { publicKey, privateKey } = crypto.generateKeyPairSync('rsa', {
-      modulusLength: 2048,
-      publicKeyEncoding: { type: 'spki', format: 'pem' },
-      privateKeyEncoding: { type: 'pkcs8', format: 'pem' }
-    });
-    
-    // Create self-signed certificate
-    // For proper production use, use Let's Encrypt or another CA
-    const cert = this.createSelfSignedCert(privateKey, publicKey);
-    
-    return { cert, key: privateKey };
-  }
-
-  /**
-   * Create a minimal self-signed X.509 certificate
-   * This is for development/testing only
-   */
-  createSelfSignedCert(privateKey, publicKey) {
-    // Note: In production, always use proper certificates from a trusted CA
-    // This minimal self-signed cert is for testing purposes only
-    
-    // Create a simple self-signed certificate using Node's crypto
-    // For full X.509, you'd typically use a library like node-forge
-    // Here we create a basic PEM-encoded certificate structure
-    
-    const now = new Date();
-    const notBefore = now.toISOString();
-    const notAfter = new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000).toISOString(); // 1 year
-    
-    // For development, we can use OpenSSL-style self-signed certs
-    // In Node.js we need to create a proper DER-encoded certificate
-    // This is complex, so for testing we'll rely on pre-generated or external certs
-    
-    // Return a placeholder that indicates self-signed mode
-    // Actual implementation would use node-forge or similar
-    console.warn('Self-signed certificate generation requested - use external certs for production');
-    
-    return publicKey; // Placeholder - real implementation needs proper X.509
-  }
+  // Note: Self-signed certificate generation is handled by shared/tls.js
+  // Use generateSelfSignedCertificate() from that module for testing
 
   /**
    * Start HTTPS server

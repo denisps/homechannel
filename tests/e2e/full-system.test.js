@@ -207,16 +207,17 @@ describe('E2E: Coordinator and Server Integration', () => {
   
   test('Server should maintain keepalive connection', async () => {
     // Helper to make HTTP/HTTPS request to coordinator
-    function makeRequest(method, reqPath, body = null) {
+    // WARNING: rejectUnauthorized: false is for testing with self-signed certs only
+    function makeRequest(method, path, body = null) {
       return new Promise((resolve, reject) => {
         const protocol = useTLS ? https : http;
         const options = {
           hostname: 'localhost',
           port: httpsPort,
-          path: reqPath,
+          path,
           method,
           headers: { 'Content-Type': 'application/json' },
-          rejectUnauthorized: false // Accept self-signed certs for testing
+          rejectUnauthorized: false // FOR TESTING ONLY - accept self-signed certs
         };
         
         const req = protocol.request(options, (res) => {

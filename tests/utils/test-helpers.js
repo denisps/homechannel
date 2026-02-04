@@ -19,6 +19,11 @@ const projectRoot = path.join(__dirname, '../..');
 
 /**
  * Make HTTP/HTTPS request to a server
+ * 
+ * WARNING: This utility is for testing only. The default rejectUnauthorized: false
+ * disables TLS certificate validation to allow self-signed certificates in tests.
+ * NEVER use this default in production code.
+ * 
  * @param {Object} options - Request options
  * @param {string} options.method - HTTP method (GET, POST, etc.)
  * @param {string} options.hostname - Server hostname
@@ -26,7 +31,7 @@ const projectRoot = path.join(__dirname, '../..');
  * @param {string} options.path - Request path
  * @param {Object} options.body - Request body (will be JSON stringified)
  * @param {boolean} options.useTLS - Whether to use HTTPS (default: false)
- * @param {boolean} options.rejectUnauthorized - Reject invalid TLS certs (default: false for testing)
+ * @param {boolean} options.rejectUnauthorized - Reject invalid TLS certs (default: false FOR TESTING ONLY)
  * @returns {Promise<{statusCode, headers, body}>}
  */
 export function makeHttpRequest(options) {
@@ -42,7 +47,9 @@ export function makeHttpRequest(options) {
         'Content-Type': 'application/json',
         ...options.headers
       },
-      rejectUnauthorized: options.rejectUnauthorized ?? false // Allow self-signed certs by default
+      // WARNING: rejectUnauthorized: false is ONLY for testing with self-signed certs
+      // Production code should ALWAYS validate certificates (use true or omit this option)
+      rejectUnauthorized: options.rejectUnauthorized ?? false
     };
     
     const req = protocol.request(reqOptions, (res) => {
