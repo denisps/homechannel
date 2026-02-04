@@ -80,11 +80,29 @@ Minimal-dependency WebRTC datachannel solution for remote home access. Pure Java
 - [ ] Security considered (crypto, validation, sanitization)
 - [ ] Test strategy identified
 
+### Testing Requirements
+
+**Tests MUST verify actual behavior, not just side effects:**
+- ❌ DON'T: Check connection still alive → assume keepalive works
+- ✅ DO: Listen for keepalive events, count messages, verify exchange
+- ❌ DON'T: Check file exists → assume write succeeded
+- ✅ DO: Read file back, verify exact content matches
+- ❌ DON'T: Check no error thrown → assume encryption worked
+- ✅ DO: Decrypt result, verify plaintext matches original
+
+**Critical test standards:**
+- Listen for/capture events being tested (use `.on()` handlers)
+- Count messages/calls if testing message exchange
+- Verify exact data (decrypt, read back, parse) not just absence of errors
+- Test both positive and negative cases (success AND failure paths)
+- Include timeouts for all async operations
+- Clean up all resources in `after()` hooks using proper stop/close methods
+
 ### Workflow Steps
 
 1. **Branch:** `git checkout -b feature/name` or `fix/name`
 2. **Baseline test:** `npm test` (ensure passing)
-3. **Write tests** (TDD: test critical paths, errors, edge cases)
+3. **Write tests** (TDD: verify ACTUAL behavior, not side effects)
 4. **Implement** (async/await, error handling, meaningful messages)
 5. **Test:** `npm test` (verify implementation)
 6. **Review checklist:**
