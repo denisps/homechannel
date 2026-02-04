@@ -7,7 +7,7 @@
 
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert';
-import { TestCleanupHandler } from '../utils/test-helpers.js';
+import { TestCleanupHandler, cleanupClient, createPingCounter } from '../utils/test-helpers.js';
 import { UDPClient, UDPServer } from '../../shared/protocol.js';
 import { ServerRegistry } from '../../coordinator/registry.js';
 import { generateECDSAKeyPair } from '../../shared/keys.js';
@@ -35,6 +35,9 @@ describe('Server-Coordinator Integration', () => {
       if (udpServer) {
         await udpServer.stop();
       }
+      if (registry) {
+        registry.destroy();
+      }
     });
   });
 
@@ -60,11 +63,7 @@ describe('Server-Coordinator Integration', () => {
       client.on('registered', resolve);
     });
     
-    cleanup.add(async () => {
-      if (client && client.socket) {
-        client.socket.close();
-      }
-    });
+    cleanup.add(() => cleanupClient(client));
     
     // Start registration
     await client.start();
@@ -79,7 +78,7 @@ describe('Server-Coordinator Integration', () => {
     
     // Verify server is in registry
     const serverKey = `127.0.0.1:${client.socket.address().port}`;
-    const server = registry.getServer(serverKey);
+    const server = registry.getServerByIpPort(serverKey);
     
     assert.ok(server, 'Server should be registered');
     assert.strictEqual(typeof server.challenge, 'string', 'Challenge should be string');
@@ -95,10 +94,13 @@ describe('Server-Coordinator Integration', () => {
       serverKeys,
       {
         coordinatorPublicKey: coordinatorKeys.publicKey,
-        keepaliveIntervalMs: 500, // Short interval for testing
+        keepaliveIntervalMs: 200, // Short interval for testing
         heartbeatIntervalMs: 60000 // Long interval to avoid interference
       }
     );
+    
+    // Use shared ping counter utility
+    const pingCounter = createPingCounter(udpServer);
     
     // Track registration event
     const registrationPromise = new Promise((resolve) => {
@@ -106,9 +108,8 @@ describe('Server-Coordinator Integration', () => {
     });
     
     cleanup.add(async () => {
-      if (client && client.socket) {
-        client.socket.close();
-      }
+      pingCounter.restore();
+      await cleanupClient(client);
     });
     
     await client.start();
@@ -122,15 +123,23 @@ describe('Server-Coordinator Integration', () => {
     ]);
     
     const serverKey = `127.0.0.1:${client.socket.address().port}`;
-    const server = registry.getServer(serverKey);
-    const initialTimestamp = server.lastSeen;
+    const server = registry.getServerByIpPort(serverKey);
+    const initialTimestamp = server.timestamp;
     
-    // Wait for ping to update timestamp
+    // Wait for multiple pings to be sent (200ms interval, wait 1s = ~5 pings expected)
     await new Promise(resolve => setTimeout(resolve, 1000));
     
-    const updatedServer = registry.getServer(serverKey);
+    const updatedServer = registry.getServerByIpPort(serverKey);
+    
+    // Verify actual ping messages were received (not just timestamp changed)
     assert.ok(
-      updatedServer.lastSeen > initialTimestamp,
+      pingCounter.getTotalPings() >= 3,
+      `Should receive at least 3 pings, got ${pingCounter.getTotalPings()}`
+    );
+    
+    // Also verify timestamp is being updated
+    assert.ok(
+      updatedServer.timestamp > initialTimestamp,
       'Timestamp should be updated after ping'
     );
   });
@@ -166,11 +175,7 @@ describe('Server-Coordinator Integration', () => {
       registrationFailed = true;
     });
     
-    cleanup.add(async () => {
-      if (client && client.socket) {
-        client.socket.close();
-      }
-    });
+    cleanup.add(() => cleanupClient(client));
     
     await client.start().catch(() => {
       // Expected to fail

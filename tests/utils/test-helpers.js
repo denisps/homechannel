@@ -10,10 +10,148 @@ import { setTimeout as sleep } from 'timers/promises';
 import { fileURLToPath } from 'url';
 import path from 'path';
 import fs from 'fs/promises';
+import http from 'http';
+import https from 'https';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const projectRoot = path.join(__dirname, '../..');
+
+/**
+ * Make HTTP/HTTPS request to a server
+ * 
+ * WARNING: This utility is for testing only. The default rejectUnauthorized: false
+ * disables TLS certificate validation to allow self-signed certificates in tests.
+ * NEVER use this default in production code.
+ * 
+ * @param {Object} options - Request options
+ * @param {string} options.method - HTTP method (GET, POST, etc.)
+ * @param {string} options.hostname - Server hostname
+ * @param {number} options.port - Server port
+ * @param {string} options.path - Request path
+ * @param {Object} options.body - Request body (will be JSON stringified)
+ * @param {boolean} options.useTLS - Whether to use HTTPS (default: false)
+ * @param {boolean} options.rejectUnauthorized - Reject invalid TLS certs (default: false FOR TESTING ONLY)
+ * @returns {Promise<{statusCode, headers, body}>}
+ */
+export function makeHttpRequest(options) {
+  return new Promise((resolve, reject) => {
+    const protocol = options.useTLS ? https : http;
+    
+    const reqOptions = {
+      hostname: options.hostname || 'localhost',
+      port: options.port,
+      path: options.path,
+      method: options.method || 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+      },
+      // WARNING: rejectUnauthorized: false is ONLY for testing with self-signed certs
+      // Production code should ALWAYS validate certificates (use true or omit this option)
+      rejectUnauthorized: options.rejectUnauthorized ?? false
+    };
+    
+    const req = protocol.request(reqOptions, (res) => {
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => {
+        try {
+          const result = {
+            statusCode: res.statusCode,
+            headers: res.headers,
+            body: data ? JSON.parse(data) : null
+          };
+          resolve(result);
+        } catch (err) {
+          reject(err);
+        }
+      });
+    });
+    
+    req.on('error', reject);
+    
+    if (options.body) {
+      req.write(JSON.stringify(options.body));
+    }
+    req.end();
+  });
+}
+
+/**
+ * Create a request helper bound to a specific server
+ * @param {number} port - Server port
+ * @param {boolean} useTLS - Whether to use HTTPS
+ * @returns {Function} - makeRequest(method, path, body)
+ */
+export function createRequestHelper(port, useTLS = false) {
+  return function makeRequest(method, path, body = null) {
+    return makeHttpRequest({
+      method,
+      hostname: 'localhost',
+      port,
+      path,
+      body,
+      useTLS
+    });
+  };
+}
+
+/**
+ * Gracefully stop a UDPClient and cleanup
+ * @param {Object} client - UDPClient instance
+ */
+export async function cleanupClient(client) {
+  if (!client) return;
+  
+  try {
+    await client.stop();
+  } catch (err) {
+    // If stop fails, try to close socket directly
+    if (client.socket) {
+      try {
+        client.socket.close();
+      } catch (socketErr) {
+        // Ignore socket close errors
+      }
+    }
+  }
+}
+
+/**
+ * Create a ping counting wrapper for UDPServer
+ * Tracks PING messages received from clients
+ * @param {Object} udpServer - UDPServer instance
+ * @returns {Object} - { pingCounts: Map, restore: Function }
+ */
+export function createPingCounter(udpServer) {
+  const pingCountByClient = new Map();
+  const originalHandleMessage = udpServer.handleMessage.bind(udpServer);
+  
+  // Wrap handleMessage to count pings
+  udpServer.handleMessage = (msg, rinfo) => {
+    // PING messages have type 0x06 at byte position 1
+    if (msg.length >= 2 && msg[1] === 0x06) {
+      const clientKey = `${rinfo.address}:${rinfo.port}`;
+      pingCountByClient.set(clientKey, (pingCountByClient.get(clientKey) || 0) + 1);
+    }
+    return originalHandleMessage(msg, rinfo);
+  };
+  
+  return {
+    pingCounts: pingCountByClient,
+    getTotalPings: () => {
+      let total = 0;
+      for (const count of pingCountByClient.values()) {
+        total += count;
+      }
+      return total;
+    },
+    restore: () => {
+      udpServer.handleMessage = originalHandleMessage;
+    }
+  };
+}
 
 /**
  * Start a real coordinator instance for testing

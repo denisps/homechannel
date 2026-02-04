@@ -9,6 +9,7 @@ import assert from 'node:assert';
 import { UDPClient, UDPServer } from '../../shared/protocol.js';
 import { ServerRegistry } from '../../coordinator/registry.js';
 import { generateECDSAKeyPair } from '../../shared/keys.js';
+import { cleanupClient, createPingCounter } from '../utils/test-helpers.js';
 
 describe('System Test: Multi-Server Connections', () => {
   let coordinatorKeys;
@@ -27,13 +28,9 @@ describe('System Test: Multi-Server Connections', () => {
   });
 
   after(async () => {
-    // Cleanup all clients
+    // Cleanup all clients using shared utility
     for (const client of clients) {
-      try {
-        await client.stop();
-      } catch (err) {
-        // Ignore cleanup errors
-      }
+      await cleanupClient(client);
     }
     
     // Stop coordinator
@@ -55,7 +52,11 @@ describe('System Test: Multi-Server Connections', () => {
         'localhost',
         coordinatorPort,
         serverKeys,
-        { coordinatorPublicKey: coordinatorKeys.publicKey }
+        { 
+          coordinatorPublicKey: coordinatorKeys.publicKey,
+          keepaliveIntervalMs: 500, // Short interval for testing keepalive
+          heartbeatIntervalMs: 60000 // Long interval to avoid interference
+        }
       );
       
       clients.push(client);
@@ -85,8 +86,23 @@ describe('System Test: Multi-Server Connections', () => {
   });
 
   test('should maintain all connections with keepalive', async () => {
-    // Wait for a keepalive cycle
+    // Use shared ping counter utility
+    const pingCounter = createPingCounter(udpServer);
+
+    // Wait for keepalive pings (with short interval set by clients)
     await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    // Restore original handler
+    pingCounter.restore();
+
+    // Verify actual ping messages were received from clients (not just checking socket state)
+    const totalPingsReceived = pingCounter.getTotalPings();
+    
+    // Each client should have sent at least one ping during the 2 second wait
+    assert.ok(
+      totalPingsReceived >= clients.length,
+      `Should receive at least ${clients.length} total pings (one per client), got ${totalPingsReceived}`
+    );
 
     // All clients should still be running
     for (const client of clients) {
@@ -99,9 +115,9 @@ describe('System Test: Multi-Server Connections', () => {
   });
 
   test('should handle server disconnection gracefully', async () => {
-    // Disconnect one server
+    // Disconnect one server using shared utility
     const clientToDisconnect = clients[0];
-    await clientToDisconnect.stop();
+    await cleanupClient(clientToDisconnect);
 
     // Wait for cleanup
     await new Promise(resolve => setTimeout(resolve, 1000));

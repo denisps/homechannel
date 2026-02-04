@@ -1,17 +1,20 @@
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert';
 import http from 'http';
+import https from 'https';
 import { HTTPSServer } from '../https.js';
 import { ServerRegistry } from '../registry.js';
 import { UDPServer } from '../../shared/protocol.js';
 import { generateECDSAKeyPair } from '../../shared/keys.js';
 import { signData, verifySignature, generateChallenge, hashChallengeAnswer } from '../../shared/crypto.js';
+import { generateSelfSignedCertificate, isOpenSSLAvailable } from '../../shared/tls.js';
 
 /**
- * Helper to make HTTP requests
+ * Helper to make HTTP/HTTPS requests
  */
-async function makeRequest(method, path, body = null, port = 8443) {
+async function makeRequest(method, path, body = null, port = 8443, useTLS = false) {
   return new Promise((resolve, reject) => {
+    const protocol = useTLS ? https : http;
     const options = {
       hostname: 'localhost',
       port,
@@ -19,10 +22,11 @@ async function makeRequest(method, path, body = null, port = 8443) {
       method,
       headers: {
         'Content-Type': 'application/json'
-      }
+      },
+      rejectUnauthorized: false // Accept self-signed certs for testing
     };
 
-    const req = http.request(options, (res) => {
+    const req = protocol.request(options, (res) => {
       let data = '';
       res.on('data', chunk => data += chunk);
       res.on('end', () => {
@@ -68,6 +72,7 @@ describe('HTTPS Server', () => {
       }
     };
     
+    // Start in HTTP mode for basic tests (no TLS cert/key provided)
     httpsServer = new HTTPSServer(registry, coordinatorKeys, mockUdpServer, {
       port: testPort,
       host: 'localhost'
@@ -502,6 +507,92 @@ describe('HTTPS Server', () => {
       });
       
       assert.strictEqual(response.status, 400);
+      
+      await testHttpsServer.stop();
+      testRegistry.destroy();
+    });
+  });
+
+  describe('TLS Mode', () => {
+    test('should start in HTTPS mode with TLS certificates', async (t) => {
+      // Skip if OpenSSL is not available
+      if (!isOpenSSLAvailable()) {
+        t.skip('OpenSSL not available for certificate generation');
+        return;
+      }
+
+      const testRegistry = new ServerRegistry();
+      
+      // Generate self-signed certificate for testing
+      const { cert, key } = generateSelfSignedCertificate({ commonName: 'localhost' });
+      
+      const testHttpsServer = new HTTPSServer(testRegistry, coordinatorKeys, mockUdpServer, {
+        port: 8449,
+        host: 'localhost',
+        cert,
+        key
+      });
+      
+      await testHttpsServer.start();
+      
+      // Make HTTPS request
+      const response = await makeRequest('GET', '/api/coordinator-key', null, 8449, true);
+      
+      assert.strictEqual(response.status, 200);
+      assert.ok(response.data.publicKey);
+      assert.ok(response.data.signature);
+      
+      await testHttpsServer.stop();
+      testRegistry.destroy();
+    });
+
+    test('should accept cert and key directly without files', async (t) => {
+      // Skip if OpenSSL is not available
+      if (!isOpenSSLAvailable()) {
+        t.skip('OpenSSL not available for certificate generation');
+        return;
+      }
+
+      const testRegistry = new ServerRegistry();
+      const { cert, key } = generateSelfSignedCertificate({ commonName: 'localhost' });
+      
+      const testHttpsServer = new HTTPSServer(testRegistry, coordinatorKeys, mockUdpServer, {
+        port: 8450,
+        host: 'localhost',
+        cert,
+        key
+      });
+      
+      // Verify it detects TLS mode
+      assert.strictEqual(testHttpsServer.useTLS, true, 'Should detect TLS mode when cert/key provided');
+      
+      await testHttpsServer.start();
+      
+      // Verify we can make HTTPS requests
+      const response = await makeRequest('GET', '/api/coordinator-key', null, 8450, true);
+      assert.strictEqual(response.status, 200);
+      
+      await testHttpsServer.stop();
+      testRegistry.destroy();
+    });
+
+    test('should fall back to HTTP when no TLS credentials provided', async () => {
+      const testRegistry = new ServerRegistry();
+      
+      const testHttpsServer = new HTTPSServer(testRegistry, coordinatorKeys, mockUdpServer, {
+        port: 8451,
+        host: 'localhost'
+        // No cert or key provided
+      });
+      
+      // Verify it detects non-TLS mode
+      assert.strictEqual(testHttpsServer.useTLS, false, 'Should detect non-TLS mode when no cert/key');
+      
+      await testHttpsServer.start();
+      
+      // Verify we can make HTTP requests (not HTTPS)
+      const response = await makeRequest('GET', '/api/coordinator-key', null, 8451, false);
+      assert.strictEqual(response.status, 200);
       
       await testHttpsServer.stop();
       testRegistry.destroy();

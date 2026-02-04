@@ -1,10 +1,15 @@
 import http from 'http';
+import https from 'https';
 import crypto from 'crypto';
+import fs from 'fs';
 import { signData, hashChallengeAnswer } from '../shared/crypto.js';
 
 /**
  * HTTPS server for client-coordinator communication
  * Provides REST API for WebRTC signaling
+ * 
+ * Supports both HTTPS (production) and HTTP (testing) modes.
+ * HTTPS is required for production as Web Crypto API only works on secure origins.
  */
 export class HTTPSServer {
   constructor(registry, coordinatorKeys, udpServer, options = {}) {
@@ -24,32 +29,92 @@ export class HTTPSServer {
     
     // Session timeout (60 seconds)
     this.sessionTimeout = options.sessionTimeout || 60000;
+    
+    // TLS mode detection: use HTTPS if cert and key are provided
+    this.useTLS = !!(options.certPath && options.keyPath) || !!(options.cert && options.key);
   }
+
+  /**
+   * Load TLS certificates from files
+   */
+  loadTLSCertificates() {
+    const certPath = this.options.certPath;
+    const keyPath = this.options.keyPath;
+    
+    if (!fs.existsSync(certPath)) {
+      throw new Error(`TLS certificate not found: ${certPath}`);
+    }
+    if (!fs.existsSync(keyPath)) {
+      throw new Error(`TLS private key not found: ${keyPath}`);
+    }
+    
+    return {
+      cert: fs.readFileSync(certPath, 'utf8'),
+      key: fs.readFileSync(keyPath, 'utf8')
+    };
+  }
+
+  // Note: Self-signed certificate generation is handled by shared/tls.js
+  // Use generateSelfSignedCertificate() from that module for testing
 
   /**
    * Start HTTPS server
    */
   async start() {
     return new Promise((resolve, reject) => {
-      this.server = http.createServer((req, res) => {
+      const requestHandler = (req, res) => {
         this.handleRequest(req, res).catch(err => {
           console.error('Request handler error:', err);
           if (!res.headersSent) {
             this.sendError(res, 500, 'Internal server error');
           }
         });
-      });
+      };
 
-      this.server.listen(this.options.port || 8443, this.options.host || '0.0.0.0', () => {
-        console.log(`HTTPS server listening on ${this.options.host || '0.0.0.0'}:${this.options.port || 8443}`);
+      if (this.useTLS) {
+        // HTTPS mode with TLS
+        let tlsOptions;
         
-        // Start session cleanup
-        this.sessionCleanupInterval = setInterval(() => {
-          this.cleanupSessions();
-        }, 30000).unref();
+        if (this.options.cert && this.options.key) {
+          // Certificates provided directly (e.g., for testing)
+          tlsOptions = {
+            cert: this.options.cert,
+            key: this.options.key
+          };
+        } else {
+          // Load certificates from files
+          tlsOptions = this.loadTLSCertificates();
+        }
         
-        resolve();
-      });
+        this.server = https.createServer(tlsOptions, requestHandler);
+        
+        this.server.listen(this.options.port || 8443, this.options.host || '0.0.0.0', () => {
+          console.log(`HTTPS server (TLS) listening on ${this.options.host || '0.0.0.0'}:${this.options.port || 8443}`);
+          
+          // Start session cleanup
+          this.sessionCleanupInterval = setInterval(() => {
+            this.cleanupSessions();
+          }, 30000).unref();
+          
+          resolve();
+        });
+      } else {
+        // HTTP mode (for testing only - not secure for production)
+        console.warn('Starting HTTP server (not HTTPS) - use only for testing!');
+        
+        this.server = http.createServer(requestHandler);
+
+        this.server.listen(this.options.port || 8443, this.options.host || '0.0.0.0', () => {
+          console.log(`HTTP server listening on ${this.options.host || '0.0.0.0'}:${this.options.port || 8443}`);
+          
+          // Start session cleanup
+          this.sessionCleanupInterval = setInterval(() => {
+            this.cleanupSessions();
+          }, 30000).unref();
+          
+          resolve();
+        });
+      }
 
       this.server.on('error', reject);
     });

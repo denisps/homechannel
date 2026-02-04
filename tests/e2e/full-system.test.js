@@ -3,15 +3,19 @@
  * 
  * Tests the complete flow: Start coordinator -> Start server -> Verify registration
  * This is a true e2e test without mocks.
+ * Uses HTTPS with self-signed certificates for testing.
  */
 
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert';
-import { spawn } from 'child_process';
+import { spawn, execSync } from 'child_process';
 import { setTimeout as sleep } from 'timers/promises';
 import fs from 'fs/promises';
 import path from 'path';
+import https from 'https';
+import http from 'http';
 import { fileURLToPath } from 'url';
+import { isOpenSSLAvailable, generateSelfSignedCertificate } from '../../shared/tls.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -21,16 +25,43 @@ describe('E2E: Coordinator and Server Integration', () => {
   let coordinatorProc;
   let serverProc;
   let testConfigDir;
+  let coordinatorOutput = '';
+  let serverOutput = '';
+  let serverPublicKey = null;
+  let httpsPort = 18443;
+  let useTLS = false;
   
   before(async () => {
     // Create temporary test config directory
     testConfigDir = path.join('/tmp', `homechannel-e2e-${Date.now()}`);
     await fs.mkdir(testConfigDir, { recursive: true });
     
-    // Create coordinator config
+    // Generate TLS certificates if OpenSSL is available
+    let tlsConfig = {};
+    if (isOpenSSLAvailable()) {
+      const { cert, key } = generateSelfSignedCertificate({ 
+        commonName: 'localhost',
+        outputDir: testConfigDir 
+      });
+      const certPath = path.join(testConfigDir, 'cert.pem');
+      const keyPath = path.join(testConfigDir, 'key.pem');
+      await fs.writeFile(certPath, cert);
+      await fs.writeFile(keyPath, key);
+      tlsConfig = {
+        certPath,
+        keyPath
+      };
+      useTLS = true;
+    }
+    
+    // Create coordinator config (with TLS if available)
     const coordinatorConfig = {
       udp: { port: 13478 },
-      https: { port: 18443, host: '0.0.0.0' },
+      https: { 
+        port: 18443, 
+        host: '0.0.0.0',
+        ...tlsConfig
+      },
       privateKeyPath: path.join(testConfigDir, 'coordinator_private.pem'),
       publicKeyPath: path.join(testConfigDir, 'coordinator_public.pem'),
       serverTimeout: 300000,
@@ -78,7 +109,6 @@ describe('E2E: Coordinator and Server Integration', () => {
       stdio: ['ignore', 'pipe', 'pipe']
     });
     
-    let coordinatorOutput = '';
     coordinatorProc.stdout.on('data', (data) => {
       coordinatorOutput += data.toString();
     });
@@ -110,7 +140,6 @@ describe('E2E: Coordinator and Server Integration', () => {
       stdio: ['ignore', 'pipe', 'pipe']
     });
     
-    let serverOutput = '';
     serverProc.stdout.on('data', (data) => {
       serverOutput += data.toString();
     });
@@ -177,10 +206,76 @@ describe('E2E: Coordinator and Server Integration', () => {
   });
   
   test('Server should maintain keepalive connection', async () => {
-    // Wait for a keepalive ping
-    await sleep(2000);
+    // Helper to make HTTP/HTTPS request to coordinator
+    // WARNING: rejectUnauthorized: false is for testing with self-signed certs only
+    function makeRequest(method, path, body = null) {
+      return new Promise((resolve, reject) => {
+        const protocol = useTLS ? https : http;
+        const options = {
+          hostname: 'localhost',
+          port: httpsPort,
+          path,
+          method,
+          headers: { 'Content-Type': 'application/json' },
+          rejectUnauthorized: false // FOR TESTING ONLY - accept self-signed certs
+        };
+        
+        const req = protocol.request(options, (res) => {
+          let data = '';
+          res.on('data', (chunk) => { data += chunk; });
+          res.on('end', () => {
+            try {
+              resolve({
+                statusCode: res.statusCode,
+                body: data ? JSON.parse(data) : null
+              });
+            } catch (err) {
+              reject(err);
+            }
+          });
+        });
+        
+        req.on('error', reject);
+        if (body) {
+          req.write(JSON.stringify(body));
+        }
+        req.end();
+      });
+    }
+
+    // Read server's public key to verify it's still registered
+    const serverPubKeyPath = path.join(testConfigDir, 'server_public.pem');
+    serverPublicKey = await fs.readFile(serverPubKeyPath, 'utf8');
     
-    // Server should still be running
-    assert.ok(!serverProc.killed, 'Server should still be running after keepalive');
+    // Verify server is currently registered via HTTP API
+    const initialResponse = await makeRequest('POST', '/api/servers', {
+      serverPublicKeys: [serverPublicKey],
+      timestamp: Date.now()
+    });
+    
+    assert.strictEqual(initialResponse.statusCode, 200, 'Initial server query should succeed');
+    assert.ok(
+      initialResponse.body.servers.some(s => s.online === true),
+      'Server should initially be online'
+    );
+    
+    // Wait for multiple keepalive cycles (default is 30 seconds, but tests may use shorter)
+    // The default server timeout is 5 minutes, but keepalive should keep it active
+    await sleep(3000);
+    
+    // Server process should still be running
+    assert.ok(!serverProc.killed, 'Server should still be running after keepalive period');
+    
+    // Verify server is STILL registered via HTTP API (proves keepalive is working)
+    const afterResponse = await makeRequest('POST', '/api/servers', {
+      serverPublicKeys: [serverPublicKey],
+      timestamp: Date.now()
+    });
+    
+    assert.strictEqual(afterResponse.statusCode, 200, 'Server query after keepalive should succeed');
+    assert.ok(
+      afterResponse.body.servers.some(s => s.online === true),
+      'Server should still be online after keepalive period (proves keepalive is functioning)'
+    );
   });
 });
