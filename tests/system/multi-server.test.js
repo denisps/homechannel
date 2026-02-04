@@ -29,12 +29,10 @@ describe('System Test: Multi-Server Connections', () => {
   after(async () => {
     // Cleanup all clients
     for (const client of clients) {
-      if (client.socket && !client.socket.destroyed) {
-        try {
-          client.socket.close();
-        } catch (err) {
-          // Ignore cleanup errors
-        }
+      try {
+        await client.stop();
+      } catch (err) {
+        // Ignore cleanup errors
       }
     }
     
@@ -103,7 +101,7 @@ describe('System Test: Multi-Server Connections', () => {
   test('should handle server disconnection gracefully', async () => {
     // Disconnect one server
     const clientToDisconnect = clients[0];
-    clientToDisconnect.socket.close();
+    await clientToDisconnect.stop();
 
     // Wait for cleanup
     await new Promise(resolve => setTimeout(resolve, 1000));
