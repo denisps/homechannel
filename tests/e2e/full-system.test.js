@@ -3,16 +3,19 @@
  * 
  * Tests the complete flow: Start coordinator -> Start server -> Verify registration
  * This is a true e2e test without mocks.
+ * Uses HTTPS with self-signed certificates for testing.
  */
 
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert';
-import { spawn } from 'child_process';
+import { spawn, execSync } from 'child_process';
 import { setTimeout as sleep } from 'timers/promises';
 import fs from 'fs/promises';
 import path from 'path';
+import https from 'https';
 import http from 'http';
 import { fileURLToPath } from 'url';
+import { isOpenSSLAvailable, generateSelfSignedCertificate } from '../../shared/tls.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -26,16 +29,39 @@ describe('E2E: Coordinator and Server Integration', () => {
   let serverOutput = '';
   let serverPublicKey = null;
   let httpsPort = 18443;
+  let useTLS = false;
   
   before(async () => {
     // Create temporary test config directory
     testConfigDir = path.join('/tmp', `homechannel-e2e-${Date.now()}`);
     await fs.mkdir(testConfigDir, { recursive: true });
     
-    // Create coordinator config
+    // Generate TLS certificates if OpenSSL is available
+    let tlsConfig = {};
+    if (isOpenSSLAvailable()) {
+      const { cert, key } = generateSelfSignedCertificate({ 
+        commonName: 'localhost',
+        outputDir: testConfigDir 
+      });
+      const certPath = path.join(testConfigDir, 'cert.pem');
+      const keyPath = path.join(testConfigDir, 'key.pem');
+      await fs.writeFile(certPath, cert);
+      await fs.writeFile(keyPath, key);
+      tlsConfig = {
+        certPath,
+        keyPath
+      };
+      useTLS = true;
+    }
+    
+    // Create coordinator config (with TLS if available)
     const coordinatorConfig = {
       udp: { port: 13478 },
-      https: { port: 18443, host: '0.0.0.0' },
+      https: { 
+        port: 18443, 
+        host: '0.0.0.0',
+        ...tlsConfig
+      },
       privateKeyPath: path.join(testConfigDir, 'coordinator_private.pem'),
       publicKeyPath: path.join(testConfigDir, 'coordinator_public.pem'),
       serverTimeout: 300000,
@@ -180,18 +206,20 @@ describe('E2E: Coordinator and Server Integration', () => {
   });
   
   test('Server should maintain keepalive connection', async () => {
-    // Helper to make HTTP request to coordinator
-    function makeRequest(method, path, body = null) {
+    // Helper to make HTTP/HTTPS request to coordinator
+    function makeRequest(method, reqPath, body = null) {
       return new Promise((resolve, reject) => {
+        const protocol = useTLS ? https : http;
         const options = {
           hostname: 'localhost',
           port: httpsPort,
-          path,
+          path: reqPath,
           method,
-          headers: { 'Content-Type': 'application/json' }
+          headers: { 'Content-Type': 'application/json' },
+          rejectUnauthorized: false // Accept self-signed certs for testing
         };
         
-        const req = http.request(options, (res) => {
+        const req = protocol.request(options, (res) => {
           let data = '';
           res.on('data', (chunk) => { data += chunk; });
           res.on('end', () => {

@@ -1,28 +1,30 @@
 /**
- * Integration Test: Client-Coordinator HTTP Communication
+ * Integration Test: Client-Coordinator HTTPS Communication
  * 
- * Tests real HTTP endpoints with actual coordinator instance.
- * Replaces mock implementations with real components.
- * Note: The HTTPSServer class currently uses HTTP (not HTTPS) for simplicity.
+ * Tests real HTTP/HTTPS endpoints with actual coordinator instance.
+ * Tests both HTTP (fallback for testing) and HTTPS (production) modes.
  */
 
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert';
-import http from 'http';
-import { TestCleanupHandler } from '../utils/test-helpers.js';
+import https from 'https';
+import { TestCleanupHandler, createRequestHelper } from '../utils/test-helpers.js';
 import { HTTPSServer } from '../../coordinator/https.js';
 import { ServerRegistry } from '../../coordinator/registry.js';
 import { UDPServer } from '../../shared/protocol.js';
 import { generateECDSAKeyPair } from '../../shared/keys.js';
 import { generateChallenge, hashChallengeAnswer, signData } from '../../shared/crypto.js';
+import { generateSelfSignedCertificate, isOpenSSLAvailable } from '../../shared/tls.js';
 
 describe('Client-Coordinator HTTPS Integration', () => {
   let cleanup;
-  let httpsServer;
+  let httpsServerInstance;
   let httpsPort;
   let registry;
   let coordinatorKeys;
   let udpServer;
+  let makeRequest;
+  let useTLS = false;
 
   before(async () => {
     cleanup = new TestCleanupHandler();
@@ -39,26 +41,36 @@ describe('Client-Coordinator HTTPS Integration', () => {
       }
     };
     
+    // Try to use HTTPS with TLS if OpenSSL is available
+    let serverOptions = {
+      port: 0, // Random port
+      sessionTimeout: 60000
+    };
+    
+    if (isOpenSSLAvailable()) {
+      const { cert, key } = generateSelfSignedCertificate({ commonName: 'localhost' });
+      serverOptions.cert = cert;
+      serverOptions.key = key;
+      useTLS = true;
+    }
+    
     // Start real HTTPS server
-    const httpsServerInstance = new HTTPSServer(
+    httpsServerInstance = new HTTPSServer(
       registry,
       coordinatorKeys,
       udpServer,
-      {
-        port: 0, // Random port
-        sessionTimeout: 60000
-      }
+      serverOptions
     );
     
     await httpsServerInstance.start();
-    httpsServer = httpsServerInstance.server;
-    httpsPort = httpsServer.address().port;
+    httpsPort = httpsServerInstance.server.address().port;
+    
+    // Create request helper for this test suite
+    makeRequest = createRequestHelper(httpsPort, useTLS);
     
     cleanup.add(async () => {
-      if (httpsServer) {
-        await new Promise((resolve) => {
-          httpsServer.close(resolve);
-        });
+      if (httpsServerInstance) {
+        await httpsServerInstance.stop();
       }
     });
   });
@@ -66,47 +78,6 @@ describe('Client-Coordinator HTTPS Integration', () => {
   after(async () => {
     await cleanup.cleanup();
   });
-
-  /**
-   * Helper to make HTTP request
-   */
-  function makeRequest(method, path, body = null) {
-    return new Promise((resolve, reject) => {
-      const options = {
-        hostname: 'localhost',
-        port: httpsPort,
-        path,
-        method,
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      };
-      
-      const req = http.request(options, (res) => {
-        let data = '';
-        res.on('data', (chunk) => { data += chunk; });
-        res.on('end', () => {
-          try {
-            const result = {
-              statusCode: res.statusCode,
-              headers: res.headers,
-              body: data ? JSON.parse(data) : null
-            };
-            resolve(result);
-          } catch (err) {
-            reject(err);
-          }
-        });
-      });
-      
-      req.on('error', reject);
-      
-      if (body) {
-        req.write(JSON.stringify(body));
-      }
-      req.end();
-    });
-  }
 
   test('GET /api/coordinator-key returns valid key', async () => {
     const response = await makeRequest('GET', '/api/coordinator-key');

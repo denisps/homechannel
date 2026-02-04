@@ -7,7 +7,7 @@
 
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert';
-import { TestCleanupHandler } from '../utils/test-helpers.js';
+import { TestCleanupHandler, cleanupClient, createPingCounter } from '../utils/test-helpers.js';
 import { UDPClient, UDPServer } from '../../shared/protocol.js';
 import { ServerRegistry } from '../../coordinator/registry.js';
 import { generateECDSAKeyPair } from '../../shared/keys.js';
@@ -63,18 +63,7 @@ describe('Server-Coordinator Integration', () => {
       client.on('registered', resolve);
     });
     
-    cleanup.add(async () => {
-      if (client) {
-        try {
-          await client.stop();
-        } catch (err) {
-          // If stop fails, try to close socket directly
-          if (client.socket) {
-            client.socket.close();
-          }
-        }
-      }
-    });
+    cleanup.add(() => cleanupClient(client));
     
     // Start registration
     await client.start();
@@ -110,16 +99,8 @@ describe('Server-Coordinator Integration', () => {
       }
     );
     
-    // Track ping messages received by coordinator
-    let pingsReceived = 0;
-    const originalHandleMessage = udpServer.handleMessage.bind(udpServer);
-    udpServer.handleMessage = (msg, rinfo) => {
-      // PING messages have type 0x06 at byte position 1
-      if (msg.length >= 2 && msg[1] === 0x06) {
-        pingsReceived++;
-      }
-      return originalHandleMessage(msg, rinfo);
-    };
+    // Use shared ping counter utility
+    const pingCounter = createPingCounter(udpServer);
     
     // Track registration event
     const registrationPromise = new Promise((resolve) => {
@@ -127,18 +108,8 @@ describe('Server-Coordinator Integration', () => {
     });
     
     cleanup.add(async () => {
-      // Restore original handler
-      udpServer.handleMessage = originalHandleMessage;
-      if (client) {
-        try {
-          await client.stop();
-        } catch (err) {
-          // If stop fails, try to close socket directly
-          if (client.socket) {
-            client.socket.close();
-          }
-        }
-      }
+      pingCounter.restore();
+      await cleanupClient(client);
     });
     
     await client.start();
@@ -162,8 +133,8 @@ describe('Server-Coordinator Integration', () => {
     
     // Verify actual ping messages were received (not just timestamp changed)
     assert.ok(
-      pingsReceived >= 3,
-      `Should receive at least 3 pings, got ${pingsReceived}`
+      pingCounter.getTotalPings() >= 3,
+      `Should receive at least 3 pings, got ${pingCounter.getTotalPings()}`
     );
     
     // Also verify timestamp is being updated
@@ -204,18 +175,7 @@ describe('Server-Coordinator Integration', () => {
       registrationFailed = true;
     });
     
-    cleanup.add(async () => {
-      if (client) {
-        try {
-          await client.stop();
-        } catch (err) {
-          // If stop fails, try to close socket directly
-          if (client.socket) {
-            client.socket.close();
-          }
-        }
-      }
-    });
+    cleanup.add(() => cleanupClient(client));
     
     await client.start().catch(() => {
       // Expected to fail

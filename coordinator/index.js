@@ -47,10 +47,12 @@ class Coordinator {
       port: this.config.udp.port
     });
 
-    // Initialize HTTPS server
+    // Initialize HTTPS server with TLS config from config file
     this.httpsServer = new HTTPSServer(this.registry, this.coordinatorKeys, this.udpServer, {
       port: this.config.https.port,
-      host: this.config.https.host
+      host: this.config.https.host,
+      certPath: this.config.https.certPath,
+      keyPath: this.config.https.keyPath
     });
 
     // Register answer handler to relay to HTTPS clients
