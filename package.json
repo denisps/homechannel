@@ -1,0 +1,46 @@
+{
+  "name": "homechannel",
+  "version": "0.1.0",
+  "description": "Minimal-dependency WebRTC datachannel solution for remote home access",
+  "type": "module",
+  "private": true,
+  "workspaces": [
+    "shared",
+    "client",
+    "server",
+    "coordinator",
+    "tests"
+  ],
+  "scripts": {
+    "test": "npm test --workspaces --if-present",
+    "test:shared": "npm test --workspace=shared",
+    "test:client": "npm test --workspace=client",
+    "test:server": "npm test --workspace=server",
+    "test:coordinator": "npm test --workspace=coordinator",
+    "test:tests": "npm test --workspace=tests",
+    "test:integration": "npm run test:integration --workspace=tests",
+    "test:e2e": "npm run test:e2e --workspace=tests",
+    "test:system": "npm run test:system --workspace=tests",
+    "test:all": "npm test --workspaces --if-present && npm run test:all --workspace=tests",
+    "test:deps": "npm install --no-save --include optional --workspaces",
+    "lint": "echo 'No linter configured yet'",
+    "clean": "npm run clean --workspaces --if-present"
+  },
+  "keywords": [
+    "webrtc",
+    "datachannel",
+    "p2p",
+    "remote-access",
+    "udp",
+    "nat-traversal"
+  ],
+  "author": "",
+  "license": "GPL-3.0",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/denisps/homechannel.git"
+  }
+}

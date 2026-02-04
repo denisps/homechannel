@@ -456,8 +456,8 @@ describe('Client Crypto', () => {
     
     // Use a valid base64-encoded ECDSA P-256 public key for testing
     const mockPemKey = `-----BEGIN PUBLIC KEY-----
-MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEaFBaL0xqOy0bCwqPJmNVDhg1SvfB
-6T7S9cPKp1LHQx7gK5KhLB7LhqPKx7gK5KhLB7LhqPKx7gK5KhLB7LhqPKx7gA==
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEZHu4+5eE1kPM25YkOkNv+k+D+bdv
+IfbzkS/ryeAH5fEmhrt8I8fC1yqw0ESuxPaH4UtM6QiyiAyOHS1yxFtBug==
 -----END PUBLIC KEY-----`;
     
     // Since this is a mock test, we just verify the function runs without error

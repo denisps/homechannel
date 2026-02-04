@@ -136,6 +136,23 @@ See [PROTOCOL.md](docs/PROTOCOL.md) for detailed specifications.
 ## Development
 
 ```bash
+# Install optional test dependencies (WebRTC libraries, etc.) without saving
+npm run test:deps
+
+# Run ALL tests from root (npm workspaces)
+npm test                    # All workspace tests
+npm run test:shared         # Shared module tests only
+npm run test:client         # Client tests only
+npm run test:server         # Server tests only
+npm run test:coordinator    # Coordinator tests only
+npm run test:tests          # All integration/E2E/system tests
+npm run test:integration    # Integration tests only
+npm run test:e2e            # E2E tests only
+npm run test:system         # System tests only
+npm run test:all            # ALL tests including test suites in tests/
+
+# Or run tests per directory:
+
 # Run shared crypto/protocol tests
 cd shared
 npm test

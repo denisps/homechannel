@@ -104,6 +104,9 @@ export class UDPClient {
     // Configurable intervals for testing
     this.keepaliveIntervalMs = options.keepaliveIntervalMs || 30000; // 30 seconds default
     this.heartbeatIntervalMs = options.heartbeatIntervalMs || 600000; // 10 minutes default
+    
+    // Verbosity: 0=silent (errors only), 1=normal (important events), 2=verbose (all messages with details)
+    this.verbosity = options.verbosity !== undefined ? options.verbosity : 1;
   }
 
   /**
@@ -119,18 +122,22 @@ export class UDPClient {
         reject(err);
       });
 
-      this.socket.on('message', (msg) => {
-        this.handleMessage(msg);
+      this.socket.on('message', (msg, rinfo) => {
+        this.handleMessage(msg, rinfo);
       });
 
       this.socket.on('listening', () => {
         const address = this.socket.address();
-        console.log(`Server listening on ${address.address}:${address.port}`);
+        if (this.verbosity >= 2) {
+          console.log(`Server listening on ${address.address}:${address.port}`);
+        }
         
         // Initiate ECDH registration
         this.initiateRegistration()
           .then(() => {
-            console.log('Registration sequence initiated');
+            if (this.verbosity >= 2) {
+              console.log('Registration sequence initiated');
+            }
             resolve();
           })
           .catch((err) => {
@@ -165,7 +172,9 @@ export class UDPClient {
           console.error('Error sending HELLO:', err);
           throw err;
         }
-        console.log('Sent HELLO');
+        if (this.verbosity >= 2) {
+          console.log('Sent HELLO');
+        }
       });
     } catch (error) {
       this.state = 'disconnected';
@@ -176,12 +185,19 @@ export class UDPClient {
   /**
    * Handle incoming message from coordinator
    */
-  handleMessage(msg) {
+  handleMessage(msg, rinfo) {
     try {
+      // Log message details at high verbosity
+      if (this.verbosity >= 2 && rinfo) {
+        console.log(`[UDP Client] Received ${msg.length} bytes from ${rinfo.address}:${rinfo.port}`);
+      }
+
       const { messageType, payload } = parseUDPMessage(msg);
 
       const typeName = MESSAGE_TYPE_NAMES[messageType] || 'unknown';
-      console.log(`Received ${typeName} message`);
+      if (this.verbosity >= 2) {
+        console.log(`Received ${typeName} message`);
+      }
 
       switch (messageType) {
         case MESSAGE_TYPES.HELLO_ACK:
@@ -227,7 +243,9 @@ export class UDPClient {
       // Store coordinator's tag for Phase 3
       this.coordinatorTag = decoded.coordinatorTag;
       
-      console.log('HELLO_ACK verified, proceeding to ECDH');
+      if (this.verbosity >= 2) {
+        console.log('HELLO_ACK verified, proceeding to ECDH');
+      }
       
       // Now proceed to Phase 3: ECDH Init
       await this.sendECDHInit();
@@ -257,7 +275,9 @@ export class UDPClient {
           console.error('Error sending ECDH init:', err);
           throw err;
         }
-        console.log('Sent ECDH init');
+        if (this.verbosity >= 2) {
+          console.log('Sent ECDH init');
+        }
       });
     } catch (error) {
       console.error('Error sending ECDH init:', error.message);
@@ -296,7 +316,9 @@ export class UDPClient {
         if (!verifyBinarySignature(dataToVerify, signature, this.coordinatorPublicKey)) {
           throw new Error('Coordinator signature verification failed');
         }
-        console.log('Coordinator signature verified');
+        if (this.verbosity >= 2) {
+          console.log('Coordinator signature verified');
+        }
       }
 
       // Store shared secret for phase 3
@@ -368,7 +390,9 @@ export class UDPClient {
           console.error('Error sending registration:', err);
           throw err;
         }
-        console.log('Sent registration');
+        if (this.verbosity >= 2) {
+          console.log('Sent registration');
+        }
       });
     } catch (error) {
       console.error('Error sending registration:', error.message);
@@ -386,7 +410,9 @@ export class UDPClient {
       const data = decryptAES(payload, key);
 
       if (data.status === 'ok' && data.type === 'register') {
-        console.log('Registration acknowledged by coordinator');
+        if (this.verbosity >= 1) {
+          console.log('Registration acknowledged by coordinator');
+        }
         
         // Registration complete - start keepalive
         this.state = 'registered';
@@ -488,7 +514,9 @@ export class UDPClient {
           this.challenge = newChallenge;
           this.expectedAnswer = newExpectedAnswer;
           this.aesKey = deriveAESKey(this.expectedAnswer);
-          console.log('Heartbeat sent, challenge refreshed');
+          if (this.verbosity >= 2) {
+            console.log('Heartbeat sent, challenge refreshed');
+          }
         }
       });
     } catch (error) {
@@ -515,7 +543,9 @@ export class UDPClient {
         this.challenge = data.payload.newChallenge;
         this.expectedAnswer = data.payload.challengeAnswerHash;
         this.aesKey = deriveAESKey(this.expectedAnswer);
-        console.log('Challenge refreshed');
+        if (this.verbosity >= 2) {
+          console.log('Challenge refreshed');
+        }
       }
     } catch (error) {
       console.error('Error handling heartbeat:', error.message);
@@ -548,7 +578,9 @@ export class UDPClient {
         return;
       }
 
-      console.log(`Coordinator migration requested to ${host}:${port}`);
+      if (this.verbosity >= 1) {
+        console.log(`Coordinator migration requested to ${host}:${port}`);
+      }
 
       // Emit migration event for server to handle
       if (this.handlers.has('migrate')) {
@@ -664,7 +696,9 @@ export class UDPClient {
     }
     this.state = 'disconnected';
     this.registered = false;
-    console.log('UDP client stopped');
+    if (this.verbosity >= 1) {
+      console.log('UDP client stopped');
+    }
   }
 }
 
@@ -680,6 +714,8 @@ export class UDPServer {
     this.port = options.port !== undefined ? options.port : 3478;
     this.socket = null;
     this.messageHandlers = new Map();
+    // Verbosity: 0=silent (errors only), 1=normal (important events), 2=verbose (all messages with details)
+    this.verbosity = options.verbosity !== undefined ? options.verbosity : 1;
     
     // HELLO session state for DoS prevention
     // Map: ipPort → { coordinatorTag, timestamp }
@@ -744,7 +780,9 @@ export class UDPServer {
 
       this.socket.on('listening', () => {
         const address = this.socket.address();
-        console.log(`UDP server listening on ${address.address}:${address.port}`);
+        if (this.verbosity >= 1) {
+          console.log(`UDP server listening on ${address.address}:${address.port}`);
+        }
         resolve();
       });
 
@@ -759,6 +797,11 @@ export class UDPServer {
   handleMessage(msg, rinfo) {
     try {
       const ipPort = `${rinfo.address}:${rinfo.port}`;
+      
+      // Log message details at high verbosity
+      if (this.verbosity >= 2) {
+        console.log(`[UDP Server] Received ${msg.length} bytes from ${ipPort}`);
+      }
       
       const { messageType, payload } = parseUDPMessage(msg);
 
@@ -976,7 +1019,9 @@ export class UDPServer {
       try {
         // Store unwrapped (base64) key in registry for efficiency
         this.registry.register(base64PublicKey, ipPort, challenge, challengeAnswerHash);
-        console.log(`Server registered: ${base64PublicKey.substring(0, 20)}... at ${ipPort}`);
+        if (this.verbosity >= 1) {
+          console.log(`Server registered: ${base64PublicKey.substring(0, 20)}... at ${ipPort}`);
+        }
 
         // Send acknowledgment (encrypted with shared secret)
         const ackMessage = { status: 'ok', type: 'register' };
@@ -1197,7 +1242,9 @@ export class UDPServer {
         // Unref socket so it doesn't keep event loop alive
         this.socket.unref();
         this.socket.close(() => {
-          console.log('UDP server stopped');
+          if (this.verbosity >= 1) {
+            console.log('UDP server stopped');
+          }
           resolve();
         });
       } else {
