@@ -517,12 +517,18 @@ describe('HTTPS Server', () => {
             let data = '';
             res.on('data', chunk => data += chunk);
             res.on('end', () => {
+              let parsed = null;
+              let parseError = null;
               try {
-                const parsed = JSON.parse(data);
-                resolve({ status: res.statusCode, data: parsed });
+                parsed = JSON.parse(data);
               } catch (err) {
-                resolve({ status: res.statusCode, data: {} });
+                parseError = err;
               }
+              resolve({
+                status: res.statusCode,
+                data: parsed,
+                parseError
+              });
             });
           });
 
@@ -533,6 +539,7 @@ describe('HTTPS Server', () => {
       });
 
       assert.strictEqual(response.status, 400);
+      assert.strictEqual(response.parseError, null, 'Response JSON should be valid');
       assert.ok(errors.length > 0, 'Expected malformed JSON to be logged');
       assert.ok(
         errors.some((message) => message.includes('Invalid JSON')),
