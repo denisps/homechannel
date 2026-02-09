@@ -5,13 +5,13 @@
  */
 
 import { UDPClient, UDPServer } from '../protocol.js';
-import { generateECDSAKeyPair } from '../keys.js';
+import { generateSigningKeyPair } from '../keys.js';
 
 console.log('=== Verbosity Demo ===\n');
 
 // Generate test keys
-const serverKeys = { ...generateECDSAKeyPair(), password: 'test-password' };
-const coordinatorKeys = { ...generateECDSAKeyPair(), password: 'coordinator-password' };
+const serverKeys = { ...generateSigningKeyPair(), password: 'test-password' };
+const coordinatorKeys = { ...generateSigningKeyPair(), password: 'coordinator-password' };
 
 // Mock registry for coordinator
 const mockRegistry = {

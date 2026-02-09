@@ -8,7 +8,7 @@ import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert';
 import { UDPClient, UDPServer } from '../../shared/protocol.js';
 import { ServerRegistry } from '../../coordinator/registry.js';
-import { generateECDSAKeyPair } from '../../shared/keys.js';
+import { generateSigningKeyPair } from '../../shared/keys.js';
 import { cleanupClient, createPingCounter } from '../utils/test-helpers.js';
 
 describe('System Test: Multi-Server Connections', () => {
@@ -20,7 +20,7 @@ describe('System Test: Multi-Server Connections', () => {
 
   before(async () => {
     // Start real coordinator
-    coordinatorKeys = generateECDSAKeyPair();
+    coordinatorKeys = generateSigningKeyPair();
     registry = new ServerRegistry();
     udpServer = new UDPServer(registry, coordinatorKeys, { port: 0 });
     await udpServer.start();
@@ -47,7 +47,7 @@ describe('System Test: Multi-Server Connections', () => {
     const registrationPromises = [];
 
     for (let i = 0; i < 5; i++) {
-      const serverKeys = generateECDSAKeyPair();
+      const serverKeys = generateSigningKeyPair();
       const client = new UDPClient(
         'localhost',
         coordinatorPort,

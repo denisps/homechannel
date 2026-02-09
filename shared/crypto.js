@@ -1,28 +1,42 @@
 import crypto from 'crypto';
 
+export const KEY_AGREEMENT_CURVES = new Set(['x25519', 'x448']);
+
+export function normalizeKeyAgreementCurve(curve) {
+  if (!curve) {
+    return null;
+  }
+
+  const normalized = curve.toLowerCase();
+  if (!KEY_AGREEMENT_CURVES.has(normalized)) {
+    throw new Error(`Unsupported key agreement curve: ${curve}`);
+  }
+
+  return normalized;
+}
+
 /**
- * Shared crypto module for ECDSA, ECDH, and HMAC operations
+ * Shared crypto module for EdDSA, X25519/X448, and HMAC operations
  * Used by both coordinator and server
  * Note: Key loading moved to keys.js to separate file I/O concerns
  */
 
 /**
- * Sign data with ECDSA private key
+ * Sign data with Ed25519/Ed448 private key
  */
 export function signData(data, privateKey) {
-  const sign = crypto.createSign('SHA256');
-  sign.update(JSON.stringify(data));
-  return sign.sign(privateKey, 'hex');
+  const dataBuffer = Buffer.from(JSON.stringify(data), 'utf8');
+  return crypto.sign(null, dataBuffer, privateKey).toString('hex');
 }
 
 /**
- * Verify ECDSA signature
+ * Verify Ed25519/Ed448 signature
  */
 export function verifySignature(data, signature, publicKey) {
   try {
-    const verify = crypto.createVerify('SHA256');
-    verify.update(JSON.stringify(data));
-    return verify.verify(publicKey, signature, 'hex');
+    const dataBuffer = Buffer.from(JSON.stringify(data), 'utf8');
+    const signatureBuffer = Buffer.from(signature, 'hex');
+    return crypto.verify(null, dataBuffer, publicKey, signatureBuffer);
   } catch (error) {
     return false;
   }
@@ -53,25 +67,44 @@ export function verifyHMAC(data, hmacValue, secret) {
 }
 
 /**
- * Generate ECDH key pair for key exchange
+ * Generate X25519/X448 key pair for key exchange
  */
-export function generateECDHKeyPair() {
-  const ecdh = crypto.createECDH('prime256v1');
-  ecdh.generateKeys();
-  return {
-    publicKey: ecdh.getPublicKey(),
-    privateKey: ecdh.getPrivateKey(),
-    ecdh
-  };
+export function generateECDHKeyPair(curve = 'x448') {
+  const normalized = normalizeKeyAgreementCurve(curve) || 'x448';
+
+  try {
+    const { publicKey, privateKey } = crypto.generateKeyPairSync(normalized);
+    return {
+      publicKey: publicKey.export({ format: 'der', type: 'spki' }),
+      privateKey: privateKey.export({ format: 'der', type: 'pkcs8' }),
+      curve: normalized,
+      ecdh: null
+    };
+  } catch (error) {
+    if (normalized === 'x448') {
+      return generateECDHKeyPair('x25519');
+    }
+    throw error;
+  }
 }
 
 /**
- * Compute ECDH shared secret
+ * Compute X25519/X448 shared secret
  */
-export function computeECDHSecret(privateKey, peerPublicKey) {
-  const ecdh = crypto.createECDH('prime256v1');
-  ecdh.setPrivateKey(privateKey);
-  return ecdh.computeSecret(peerPublicKey);
+export function computeECDHSecret(privateKey, peerPublicKey, curve = 'x448') {
+  const normalized = normalizeKeyAgreementCurve(curve) || 'x448';
+  const privateKeyObj = crypto.createPrivateKey({
+    key: privateKey,
+    format: 'der',
+    type: 'pkcs8'
+  });
+  const publicKeyObj = crypto.createPublicKey({
+    key: peerPublicKey,
+    format: 'der',
+    type: 'spki'
+  });
+
+  return crypto.diffieHellman({ privateKey: privateKeyObj, publicKey: publicKeyObj });
 }
 
 /**
@@ -173,22 +206,18 @@ export function wrapPublicKey(base64Key) {
 }
 
 /**
- * Sign binary data with ECDSA (for ECDH keys)
+ * Sign binary data with Ed25519/Ed448 (for ECDH keys)
  */
 export function signBinaryData(data, privateKey) {
-  const sign = crypto.createSign('SHA256');
-  sign.update(data);
-  return sign.sign(privateKey);
+  return crypto.sign(null, data, privateKey);
 }
 
 /**
- * Verify ECDSA signature on binary data
+ * Verify Ed25519/Ed448 signature on binary data
  */
 export function verifyBinarySignature(data, signature, publicKey) {
   try {
-    const verify = crypto.createVerify('SHA256');
-    verify.update(data);
-    return verify.verify(publicKey, signature);
+    return crypto.verify(null, data, publicKey, signature);
   } catch (error) {
     return false;
   }
@@ -251,7 +280,8 @@ export function decodeHelloAck(buffer) {
 /**
  * Encode ECDH init message (Phase 3: Server → Coordinator)
  * Format: [coordinatorTag(4)][ecdhPubKeyLen(1)][ecdhPubKey]
- * Now includes coordinator's tag for verification before expensive ECDH
+ * Public key is SPKI DER bytes for X25519/X448
+ * Now includes coordinator's tag for verification before expensive key agreement
  */
 export function encodeECDHInit(coordinatorTag, ecdhPublicKey) {
   if (!Buffer.isBuffer(coordinatorTag) || coordinatorTag.length !== 4) {
@@ -299,6 +329,7 @@ export function decodeECDHInit(buffer) {
 /**
  * Encode ECDH response message (Phase 4: Coordinator → Server)
  * Format: [ecdhPubKeyLen(1)][ecdhPubKey][encryptedData]
+ * Public key is SPKI DER bytes for X25519/X448
  * encryptedData contains AES-GCM encrypted {timestamp, signature}
  */
 export function encodeECDHResponse(ecdhPublicKey, encryptedData) {

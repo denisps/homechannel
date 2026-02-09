@@ -45,7 +45,7 @@ import {
   decodeECDHResponse,
   unwrapPublicKey
 } from '../../shared/crypto.js';
-import { generateECDSAKeyPair } from '../../shared/keys.js';
+import { generateSigningKeyPair } from '../../shared/keys.js';
 
 /**
  * Mock server for testing (uses ECDH-based binary protocol)
@@ -53,7 +53,7 @@ import { generateECDSAKeyPair } from '../../shared/keys.js';
 class MockServer {
   constructor(coordinatorPublicKey = null) {
     this.socket = dgram.createSocket('udp4');
-    this.keys = generateECDSAKeyPair();
+    this.keys = generateSigningKeyPair();
     this.serverPublicKey = this.keys.publicKey;
     this.serverPrivateKey = this.keys.privateKey;
     this.coordinatorPublicKey = coordinatorPublicKey;
@@ -137,7 +137,11 @@ class MockServer {
     const decoded = decodeECDHResponse(payload);
     
     // Compute shared secret
-    this.sharedSecret = computeECDHSecret(ecdhKeys.privateKey, decoded.ecdhPublicKey);
+    this.sharedSecret = computeECDHSecret(
+      ecdhKeys.privateKey,
+      decoded.ecdhPublicKey,
+      ecdhKeys.curve
+    );
     
     // Decrypt signature data to verify coordinator identity
     const key = deriveAESKey(this.sharedSecret.toString('hex'));
@@ -397,7 +401,7 @@ describe('Coordinator with Mock Server', () => {
 
   before(async () => {
     // Generate coordinator keys
-    coordinatorKeys = generateECDSAKeyPair();
+    coordinatorKeys = generateSigningKeyPair();
 
     // Create registry and UDP server
     registry = new ServerRegistry({ serverTimeout: 60000 });
@@ -588,7 +592,11 @@ describe('Coordinator with Mock Server', () => {
     // Get ECDH response and compute shared secret
     const ecdhResponse = testMockServer.getLastResponse();
     const decoded = decodeECDHResponse(ecdhResponse.slice(2));
-    const sharedSecret = computeECDHSecret(ecdhKeys.privateKey, decoded.ecdhPublicKey);
+    const sharedSecret = computeECDHSecret(
+      ecdhKeys.privateKey,
+      decoded.ecdhPublicKey,
+      ecdhKeys.curve
+    );
     
     testMockServer.clearResponses();
 
@@ -691,7 +699,7 @@ describe('End-to-end Registration with Real UDPClient', () => {
 
   before(async () => {
     // Generate coordinator keys
-    coordinatorKeys = generateECDSAKeyPair();
+    coordinatorKeys = generateSigningKeyPair();
 
     // Create registry and UDP server
     registry = new ServerRegistry({ serverTimeout: 60000 });
@@ -715,7 +723,7 @@ describe('End-to-end Registration with Real UDPClient', () => {
 
   test('should successfully register server with signature verification', async () => {
     // Generate server keys
-    const serverKeys = generateECDSAKeyPair();
+    const serverKeys = generateSigningKeyPair();
     serverKeys.password = 'test-password';
 
     // Create UDP client
@@ -775,7 +783,7 @@ describe('Ping and Heartbeat with Short Intervals', () => {
 
   before(async () => {
     // Generate coordinator keys
-    coordinatorKeys = generateECDSAKeyPair();
+    coordinatorKeys = generateSigningKeyPair();
 
     // Create registry and UDP server
     registry = new ServerRegistry({ serverTimeout: 60000 });
@@ -799,7 +807,7 @@ describe('Ping and Heartbeat with Short Intervals', () => {
 
   test('should send ping automatically with short interval', async () => {
     // Generate server keys
-    const serverKeys = generateECDSAKeyPair();
+    const serverKeys = generateSigningKeyPair();
     serverKeys.password = 'test-password';
 
     // Create UDP client with SHORT keepalive interval (200ms for testing)
@@ -841,7 +849,7 @@ describe('Ping and Heartbeat with Short Intervals', () => {
 
   test('should send heartbeat automatically with short interval', async () => {
     // Generate server keys
-    const serverKeys = generateECDSAKeyPair();
+    const serverKeys = generateSigningKeyPair();
     serverKeys.password = 'test-password';
 
     // Create UDP client with SHORT heartbeat interval (300ms for testing)
@@ -889,7 +897,7 @@ describe('Ping and Heartbeat with Short Intervals', () => {
 
   test('should handle both ping and heartbeat concurrently', async () => {
     // Generate server keys
-    const serverKeys = generateECDSAKeyPair();
+    const serverKeys = generateSigningKeyPair();
     serverKeys.password = 'test-password';
 
     // Create UDP client with SHORT intervals for both
@@ -931,7 +939,7 @@ describe('Ping and Heartbeat with Short Intervals', () => {
 
   test('should continue pings after heartbeat updates challenge', async () => {
     // Generate server keys
-    const serverKeys = generateECDSAKeyPair();
+    const serverKeys = generateSigningKeyPair();
     serverKeys.password = 'test-password';
 
     // Create UDP client with SHORT intervals

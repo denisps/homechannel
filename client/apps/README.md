@@ -33,7 +33,7 @@ open client/apps/filebrowser.html
 Fill in the connection form:
 
 - **Coordinator URL**: URL of your HomeChannel coordinator (e.g., `https://coordinator.example.com`)
-- **Server Public Key**: Your home server's ECDSA public key in PEM format
+- **Server Public Key**: Your home server's Ed25519/Ed448 public key in PEM format
 - **Password**: The password configured on your home server
 
 Example server public key format:

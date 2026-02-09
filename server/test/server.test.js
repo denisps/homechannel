@@ -38,7 +38,7 @@ import {
   decodeECDHInit,
   signData
 } from '../../shared/crypto.js';
-import { generateECDSAKeyPair } from '../../shared/keys.js';
+import { generateSigningKeyPair } from '../../shared/keys.js';
 import { PROTOCOL_VERSION, MESSAGE_TYPES } from '../../shared/protocol.js';
 
 /**
@@ -50,7 +50,7 @@ class MockCoordinator {
     this.port = port;
     this.ecdhSessions = new Map();
     this.helloSessions = new Map(); // Track HELLO sessions
-    this.coordinatorKeys = generateECDSAKeyPair();
+    this.coordinatorKeys = generateSigningKeyPair();
     this.registeredServers = new Map();
   }
 
@@ -174,7 +174,11 @@ class MockCoordinator {
       const ecdhKeys = generateECDHKeyPair();
 
       // Compute shared secret
-      const sharedSecret = computeECDHSecret(ecdhKeys.privateKey, serverECDHPublicKey);
+      const sharedSecret = computeECDHSecret(
+        ecdhKeys.privateKey,
+        serverECDHPublicKey,
+        ecdhKeys.curve
+      );
 
       // Store session
       this.ecdhSessions.set(ipPort, {
@@ -297,7 +301,7 @@ describe('Server UDP Module', () => {
   before(async () => {
     coordinator = new MockCoordinator(0); // Use any available port
     await coordinator.start();
-    serverKeys = generateECDSAKeyPair();
+    serverKeys = generateSigningKeyPair();
     serverKeys.password = 'test-password';
   });
 

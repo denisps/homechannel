@@ -454,7 +454,7 @@ describe('Client Crypto', () => {
   test('verifySignature() validates signatures', async () => {
     // verifySignature is already imported from unified module
     
-    // Use a valid base64-encoded ECDSA P-256 public key for testing
+    // Use a valid base64-encoded public key for testing (format not validated in mock)
     const mockPemKey = `-----BEGIN PUBLIC KEY-----
 MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEZHu4+5eE1kPM25YkOkNv+k+D+bdv
 IfbzkS/ryeAH5fEmhrt8I8fC1yqw0ESuxPaH4UtM6QiyiAyOHS1yxFtBug==
@@ -462,7 +462,7 @@ IfbzkS/ryeAH5fEmhrt8I8fC1yqw0ESuxPaH4UtM6QiyiAyOHS1yxFtBug==
     
     // Since this is a mock test, we just verify the function runs without error
     // In real usage, this would verify actual server signatures
-    const result = await verifySignature({ test: 'data' }, 'aabbccdd', mockPemKey);
+    const result = await verifySignature({ test: 'data' }, 'aabbccdd', mockPemKey, 'ecdsa-p256');
     
     // The verification might fail with mock data, but function should return a boolean
     assert.strictEqual(typeof result, 'boolean');

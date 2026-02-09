@@ -42,7 +42,7 @@ HomeChannel's three-component architecture enables direct peer-to-peer connectio
 #### App Page
 
 **Responsibilities**:
-- Verifies server's ECDSA signing key
+- Verifies server's Ed25519/Ed448 signing key
 - Prompts user for password
 - Computes challenge answer from password
 - Handles all WebRTC operations (creates offer, gathers ICE candidates)
@@ -74,9 +74,9 @@ HomeChannel's three-component architecture enables direct peer-to-peer connectio
 
 **Responsibilities**:
 - Initiates UDP connection to coordinator (binary protocol)
-- Performs 5-phase registration with ECDH key exchange
+- Performs 5-phase registration with X25519/X448 key exchange
 - Generates challenge for client authentication
-- Signs all payloads with ECDSA private key
+- Signs all payloads with Ed448 private key (configurable Ed25519)
 - Sends AES-GCM encrypted messages to coordinator (after registration)
 - WebRTC peer connection handling (creates answer)
 - Gathers all ICE candidates before sending
@@ -88,9 +88,9 @@ HomeChannel's three-component architecture enables direct peer-to-peer connectio
 
 **Key Files**:
 - `/server/index.js` - Main server entry point
-- `/server/udp.js` - UDP: ECDH initial, AES-GCM ongoing
+- `/server/udp.js` - UDP: X25519/X448 initial, AES-GCM ongoing
 - `/server/webrtc.js` - WebRTC connection handling
-- `/server/crypto.js` - ECDSA signing, AES-GCM encryption
+- `/server/crypto.js` - Ed25519/Ed448 signing, AES-GCM encryption
 - `/server/challenge.js` - Challenge generation
 - `/server/services/` - Service handlers (VNC, SSH, files)
 
@@ -100,10 +100,10 @@ HomeChannel's three-component architecture enables direct peer-to-peer connectio
 
 **Responsibilities**:
 - Handles 5-phase server registration (binary protocol)
-- DoS protection via tag-based handshake before ECDH
-- Performs ECDH key exchange with servers
-- Verifies server ECDSA signatures
-- Stores challenges and expectedAnswer (derived from ECDH)
+- DoS protection via tag-based handshake before X25519/X448
+- Performs X25519/X448 key exchange with servers
+- Verifies server Ed25519/Ed448 signatures
+- Stores challenges and expectedAnswer (derived from X25519/X448)
 - Verifies client challenge answers
 - Relays signed payloads between client and server
 - Optimized UDP keepalive (no-payload pings)
@@ -118,12 +118,12 @@ HomeChannel's three-component architecture enables direct peer-to-peer connectio
 **Key Files**:
 - `/coordinator/index.js` - Main coordinator entry point
 - `/coordinator/https.js` - HTTPS server for clients
-- `/coordinator/udp.js` - UDP: ECDH initial, AES-GCM ongoing
+- `/coordinator/udp.js` - UDP: X25519/X448 initial, AES-GCM ongoing
 - `/coordinator/registry.js` - Memory-compact server registry
 - `/coordinator/relay.js` - Payload relay
 - `/coordinator/cleanup.js` - Periodic cleanup of expired servers
 - `/coordinator/ratelimit.js` - Connection attempt rate limiting
-- `/shared/crypto.js` - ECDSA and AES-GCM operations (shared with server)
+- `/shared/crypto.js` - Ed25519/Ed448 and AES-GCM operations (shared with server)
 - `/shared/keys.js` - Key loading and generation utilities
 
 ## Data Flow
@@ -132,7 +132,7 @@ HomeChannel's three-component architecture enables direct peer-to-peer connectio
 
 ![Server Registration](server-registration.svg)
 
-*Simplified view. Full registration uses 5-phase binary protocol with DoS protection and ECDH key exchange. See [PROTOCOL.md](PROTOCOL.md) for complete details.*
+*Simplified view. Full registration uses 5-phase binary protocol with DoS protection and X25519/X448 key exchange. See [PROTOCOL.md](PROTOCOL.md) for complete details.*
 
 ### Client Connection
 
@@ -159,10 +159,10 @@ Map<serverPublicKey, {
   timestamp: number            // Last activity (for cleanup)
 }>
 
-// Temporary ECDH sessions during registration
+// Temporary X25519/X448 sessions during registration
 Map<ipPort, {
   coordinatorTag: Buffer,      // For Phase 3 verification
-  ecdhPrivateKey: Buffer,      // Ephemeral ECDH private key
+  ecdhPrivateKey: Buffer,      // Ephemeral X25519/X448 private key
   serverEcdhPublicKey: Buffer, // From Phase 3
   timestamp: number            // For cleanup
 }>
@@ -191,9 +191,9 @@ Map<sourceIP, {
 - **WebRTC** for client-server (direct P2P with DTLS)
 
 ### Layer 2: Security
-- **ECDH** for key exchange during registration
+- **X25519/X448** for key exchange during registration
 - **AES-256-GCM** for authenticated encryption (post-registration)
-- **ECDSA P-256** for signatures
+- **Ed448** for signatures (configurable Ed25519)
 - **Challenge-response** for client authorization
 
 *See [SECURITY.md](SECURITY.md) for complete security architecture and [PROTOCOL.md](PROTOCOL.md) for message formats.*
@@ -288,7 +288,7 @@ Map<sourceIP, {
 HomeChannel supports coordinator migration for scalability and redundancy:
 
 - **Initiated by Coordinator**: Current coordinator sends MIGRATE message to server
-- **Encrypted Payload**: Contains new coordinator's host, port, and ECDSA public key
+- **Encrypted Payload**: Contains new coordinator's host, port, and Ed25519/Ed448 public key
 - **Automatic Failover**: Server immediately attempts registration with new coordinator
 - **Persistent Storage**: Failover coordinator info saved to `failover-coordinator.json`
 - **Seamless Transition**: Server switches to new coordinator upon successful registration

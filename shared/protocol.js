@@ -94,6 +94,8 @@ export class UDPClient {
     this.expectedAnswer = null;
     this.aesKey = null;
     this.coordinatorPublicKey = options.coordinatorPublicKey || null;
+    this.keyAgreementCurve = options.keyAgreementCurve || 'x448';
+    this.signatureAlgorithm = options.signatureAlgorithm || this.serverKeys.signatureAlgorithm || 'ed448';
     
     this.registered = false;
     this.handlers = new Map();
@@ -261,7 +263,7 @@ export class UDPClient {
   async sendECDHInit() {
     try {
       // Generate ECDH key pair
-      const ecdhKeys = generateECDHKeyPair();
+      const ecdhKeys = generateECDHKeyPair(this.keyAgreementCurve);
       this.ecdhKeys = ecdhKeys;
       
       // Encode ECDH init message with coordinator's tag
@@ -299,7 +301,11 @@ export class UDPClient {
       const decoded = decodeECDHResponse(payload);
 
       // Compute shared secret
-      const sharedSecret = computeECDHSecret(this.ecdhKeys.privateKey, decoded.ecdhPublicKey);
+      const sharedSecret = computeECDHSecret(
+        this.ecdhKeys.privateKey,
+        decoded.ecdhPublicKey,
+        this.ecdhKeys.curve || this.keyAgreementCurve
+      );
 
       // Decrypt signature data
       const key = deriveAESKey(sharedSecret.toString('hex'));
@@ -646,7 +652,8 @@ export class UDPClient {
         sessionId,
         timestamp,
         payload,
-        signature
+        signature,
+        signatureAlgorithm: this.signatureAlgorithm
       };
 
       const encryptedPayload = encryptAES(answerData, this.aesKey);
@@ -705,7 +712,7 @@ export class UDPClient {
 /**
  * UDP server for server-coordinator communication
  * Uses binary protocol: [version (1 byte)][type (1 byte)][payload]
- * ECDH-based two-phase registration
+ * X25519/X448-based two-phase registration
  */
 export class UDPServer {
   constructor(registry, coordinatorKeys, options = {}) {
@@ -714,6 +721,8 @@ export class UDPServer {
     this.port = options.port !== undefined ? options.port : 3478;
     this.socket = null;
     this.messageHandlers = new Map();
+    this.keyAgreementCurve = options.keyAgreementCurve || 'x448';
+    this.signatureAlgorithm = options.signatureAlgorithm || this.coordinatorKeys.signatureAlgorithm || 'ed448';
     // Verbosity: 0=silent (errors only), 1=normal (important events), 2=verbose (all messages with details)
     this.verbosity = options.verbosity !== undefined ? options.verbosity : 1;
     
@@ -722,8 +731,8 @@ export class UDPServer {
     // Note: ipPort cannot be trusted at this stage, only used for reply routing
     this.helloSessions = new Map();
     
-    // ECDH session state for pending registrations
-    // Map: ipPort → { ecdhKeys, serverECDSAPublicKey, serverECDHPublicKey, timestamp }
+    // Key agreement session state (X25519/X448) for pending registrations
+    // Map: ipPort → { ecdhKeys, serverECDHPublicKey, timestamp }
     this.ecdhSessions = new Map();
     
     // Rate limiting: track HELLO_ACK replies sent (not incoming HELLOs)
@@ -916,10 +925,14 @@ export class UDPServer {
       this.helloSessions.delete(ipPort);
       
       // Generate coordinator's ECDH key pair
-      const ecdhKeys = generateECDHKeyPair();
+      const ecdhKeys = generateECDHKeyPair(this.keyAgreementCurve);
       
       // Compute shared secret immediately
-      const sharedSecret = computeECDHSecret(ecdhKeys.privateKey, decoded.ecdhPublicKey);
+      const sharedSecret = computeECDHSecret(
+        ecdhKeys.privateKey,
+        decoded.ecdhPublicKey,
+        ecdhKeys.curve || this.keyAgreementCurve
+      );
       
       // Store ECDH session with shared secret
       this.ecdhSessions.set(ipPort, {
@@ -995,7 +1008,7 @@ export class UDPServer {
       // Wrap received base64 key to PEM for verification
       const serverPublicKey = wrapPublicKey(base64PublicKey);
 
-      // Verify server's ECDSA signature on both ECDH public keys
+      // Verify server's Ed25519/Ed448 signature on both ECDH public keys
       const ecdhKeysData = Buffer.concat([
         session.serverECDHPublicKey,
         session.ecdhKeys.publicKey
@@ -1128,7 +1141,7 @@ export class UDPServer {
       // Wrap received base64 key to PEM for verification
       const serverPublicKey = wrapPublicKey(base64PublicKey);
 
-      // Verify ECDSA signature (verify with base64 key, what was actually signed)
+      // Verify Ed25519/Ed448 signature (verify with base64 key, what was actually signed)
       const dataToVerify = { serverPublicKey: base64PublicKey, sessionId, timestamp, payload: answerPayload };
       // But verify signature using PEM format (what crypto.verify expects)
       if (!verifySignature(dataToVerify, signature, serverPublicKey)) {

@@ -14,7 +14,7 @@
   
   <!-- Register message -->
   <line x1="100" y1="60" x2="460" y2="60" stroke="#333" stroke-width="2" marker-end="url(#arrowhead)" />
-  <text x="180" y="50" font-family="monospace" font-size="12" fill="#333">register (ECDSA-signed)</text>
+  <text x="180" y="50" font-family="monospace" font-size="12" fill="#333">register (Ed448-signed)</text>
   <text x="210" y="75" font-family="monospace" font-size="11" fill="#0066cc">(unencrypted)</text>
   
   <!-- Processing -->

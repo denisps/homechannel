@@ -10,6 +10,36 @@
 
 const cryptoAPI = globalThis.crypto;
 
+const SIGNATURE_ALGORITHMS = {
+  ed25519: {
+    importParams: { name: 'Ed25519' },
+    verifyParams: { name: 'Ed25519' }
+  },
+  ed448: {
+    importParams: { name: 'Ed448' },
+    verifyParams: { name: 'Ed448' }
+  },
+  'ecdsa-p256': {
+    importParams: { name: 'ECDSA', namedCurve: 'P-256' },
+    verifyParams: { name: 'ECDSA', hash: 'SHA-256' }
+  }
+};
+
+const DEFAULT_SIGNATURE_ALGORITHM = 'ed448';
+
+function normalizeSignatureAlgorithm(algorithm) {
+  if (!algorithm) {
+    return DEFAULT_SIGNATURE_ALGORITHM;
+  }
+
+  const normalized = algorithm.toLowerCase();
+  if (!SIGNATURE_ALGORITHMS[normalized]) {
+    throw new Error(`Unsupported signature algorithm: ${algorithm}`);
+  }
+
+  return normalized;
+}
+
   /**
    * Base64 decode that works in both browser and Node.js
    */
@@ -25,9 +55,9 @@ const cryptoAPI = globalThis.crypto;
   }
 
   /**
-   * Convert PEM or base64 public key to CryptoKey for ECDSA verification
+   * Convert PEM or base64 public key to CryptoKey for signature verification
    */
-  async function importPublicKey(key) {
+  async function importPublicKey(key, signatureAlgorithm) {
     let pemContents;
     
     // Check if it's already PEM format or raw base64
@@ -44,33 +74,30 @@ const cryptoAPI = globalThis.crypto;
     
     const binaryDer = Uint8Array.from(base64Decode(pemContents), c => c.charCodeAt(0));
     
+    const algorithm = normalizeSignatureAlgorithm(signatureAlgorithm);
+
     return await cryptoAPI.subtle.importKey(
       'spki',
       binaryDer,
-      {
-        name: 'ECDSA',
-        namedCurve: 'P-256'
-      },
+      SIGNATURE_ALGORITHMS[algorithm].importParams,
       true,
       ['verify']
     );
   }
 
   /**
-   * Verify ECDSA signature (browser version)
+   * Verify Ed25519/Ed448 signature (browser version)
    */
-  async function verifySignature(data, signature, publicKey) {
+  async function verifySignature(data, signature, publicKey, signatureAlgorithm) {
     try {
-      const cryptoKey = await importPublicKey(publicKey);
+      const algorithm = normalizeSignatureAlgorithm(signatureAlgorithm);
+      const cryptoKey = await importPublicKey(publicKey, algorithm);
       const encoder = new TextEncoder();
       const dataBuffer = encoder.encode(JSON.stringify(data));
       const signatureBuffer = hexToBytes(signature);
       
       return await cryptoAPI.subtle.verify(
-        {
-          name: 'ECDSA',
-          hash: 'SHA-256'
-        },
+        SIGNATURE_ALGORITHMS[algorithm].verifyParams,
         cryptoKey,
         signatureBuffer,
         dataBuffer
@@ -170,7 +197,7 @@ class Client {
     
     /**
      * Connect to server
-     * @param {string} serverPublicKey - Server's ECDSA public key (PEM format)
+    * @param {string} serverPublicKey - Server's Ed25519/Ed448 public key (PEM format)
      * @param {string} password - Password for challenge-response authentication
      */
     async connect(serverPublicKey, password) {
@@ -193,7 +220,8 @@ class Client {
         const isValid = await verifySignature(
           { publicKey: coordinatorKey.publicKey },
           coordinatorKey.signature,
-          coordinatorKey.publicKey
+          coordinatorKey.publicKey,
+          coordinatorKey.signatureAlgorithm || DEFAULT_SIGNATURE_ALGORITHM
         );
         
         if (!isValid) {
@@ -247,7 +275,8 @@ class Client {
             payload: answer.payload
           },
           answer.serverSignature,
-          serverPublicKey
+          serverPublicKey,
+          answer.serverSignatureAlgorithm || DEFAULT_SIGNATURE_ALGORITHM
         );
         
         if (!answerValid) {

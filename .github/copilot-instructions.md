@@ -18,14 +18,14 @@ Minimal-dependency WebRTC datachannel solution for remote home access. Pure Java
 - `docs/PROTOCOL.md` - Protocol specifications and message formats
 - `docs/SECURITY.md` - Security model and cryptography
 - `docs/ARCHITECTURE.md` - System design
-- `shared/crypto.js` - Crypto implementations (AES-GCM, ECDSA, ECDH)
+- `shared/crypto.js` - Crypto implementations (AES-GCM, Ed25519/Ed448, X25519/X448)
 - `shared/protocol.js` - Protocol helpers and UDPClient
 
 ## Security Essentials
 
 **Encryption:**
 - AES-256-GCM for authenticated encryption (see `shared/crypto.js`)
-- ECDSA for signatures, ECDH for key exchange
+- Ed448 for signatures (configurable Ed25519), X25519/X448 for key exchange
 - expectedAnswer → SHA-256 → AES key
 - Never implement custom crypto, use Node.js crypto module
 
@@ -123,4 +123,4 @@ Minimal-dependency WebRTC datachannel solution for remote home access. Pure Java
 
 **Forbidden:** Heavy frameworks, WebSockets, build tools, TypeScript, custom crypto, secrets in commits, sync file ops, blocking event loop, console.log in production, committing node_modules, committing package-lock.json, committing test dependencies
 
-**Required:** Node.js built-ins, async I/O, error handling, ECDSA signatures, AES-GCM encryption, input validation, tests, semantic versioning, simple maintainable code, `--no-save` flag when installing test dependencies
+**Required:** Node.js built-ins, async I/O, error handling, Ed448 signatures (configurable Ed25519), AES-GCM encryption, input validation, tests, semantic versioning, simple maintainable code, `--no-save` flag when installing test dependencies

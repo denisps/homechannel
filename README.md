@@ -11,7 +11,7 @@ HomeChannel enables direct peer-to-peer connections between browser clients and 
 - **Zero Build Tooling**: Pure JavaScript (ES modules), no transpilation or bundling
 - **Minimal Dependencies**: Uses only Node.js built-in modules
 - **Direct P2P**: WebRTC datachannel between client and server
-- **Secure**: ECDSA signatures, AES-GCM authenticated encryption, challenge-response authentication
+- **Secure**: Ed448 signatures (configurable Ed25519), AES-GCM authenticated encryption, challenge-response authentication
 - **Lightweight**: Memory-compact design, optimized protocol
 - **NAT-Friendly**: Efficient keepalive and NAT traversal
 - **Coordinator Migration**: Support for seamless coordinator failover and migration
@@ -94,8 +94,8 @@ node index.js
 
 ## Security Model
 
-- **ECDSA P-256**: Initial handshake and signature verification
-- **AES-GCM Encryption**: All server-coordinator UDP messages (after ECDH)
+- **Ed448**: Initial handshake and signature verification (configurable Ed25519)
+- **AES-GCM Encryption**: All server-coordinator UDP messages (after X448/X25519)
 - **Challenge-Response**: Prevents brute-force and DDoS attacks
 - **Authenticated Encryption**: AES-GCM provides both confidentiality and integrity
 - **Direct Datachannel**: Coordinator cannot intercept peer data
@@ -103,7 +103,7 @@ node index.js
 ## Protocol
 
 ### Server ↔ Coordinator (UDP)
-- **Registration**: ECDSA-signed, encrypted with ECDH shared secret
+- **Registration**: Ed448-signed, encrypted with X448/X25519 shared secret
 - **Keepalive**: Optimized ping (no payload, no encryption), every 30s
 - **Challenge Refresh**: AES-GCM encrypted heartbeat, every 10 minutes
 
@@ -129,7 +129,7 @@ See [PROTOCOL.md](docs/PROTOCOL.md) for detailed specifications.
 - [client/apps/README.md](client/apps/README.md) - File Browser app guide
 
 ### Code Reference
-- [shared/crypto.js](shared/crypto.js) - Crypto primitives (ECDSA, ECDH, AES-GCM)
+- [shared/crypto.js](shared/crypto.js) - Crypto primitives (Ed25519/Ed448, X25519/X448, AES-GCM)
 - [shared/protocol.js](shared/protocol.js) - Protocol constants and UDP helpers
 - [.github/copilot-instructions.md](.github/copilot-instructions.md) - Development guidelines
 

@@ -5,7 +5,7 @@ import https from 'https';
 import { HTTPSServer } from '../https.js';
 import { ServerRegistry } from '../registry.js';
 import { UDPServer } from '../../shared/protocol.js';
-import { generateECDSAKeyPair } from '../../shared/keys.js';
+import { generateSigningKeyPair } from '../../shared/keys.js';
 import { signData, verifySignature, generateChallenge, hashChallengeAnswer } from '../../shared/crypto.js';
 import { generateSelfSignedCertificate, isOpenSSLAvailable } from '../../shared/tls.js';
 
@@ -59,7 +59,7 @@ describe('HTTPS Server', () => {
   before(async () => {
     // Setup
     registry = new ServerRegistry();
-    coordinatorKeys = generateECDSAKeyPair();
+    coordinatorKeys = generateSigningKeyPair();
     
     // Create mock UDP server with sendOfferToServer method
     mockUdpServer = {
@@ -326,7 +326,7 @@ describe('HTTPS Server', () => {
       };
       const serverSignature = 'test-signature';
       
-      httpsServer.storeServerAnswer(sessionId, serverAnswer, serverSignature);
+      httpsServer.storeServerAnswer(sessionId, serverAnswer, serverSignature, 'ed448');
       
       // Poll for answer
       const pollResponse = await makeRequest('POST', '/api/poll', {
@@ -344,7 +344,8 @@ describe('HTTPS Server', () => {
       const dataToVerify = {
         success: pollResponse.data.success,
         payload: pollResponse.data.payload,
-        serverSignature: pollResponse.data.serverSignature
+        serverSignature: pollResponse.data.serverSignature,
+        serverSignatureAlgorithm: pollResponse.data.serverSignatureAlgorithm
       };
       const isValid = verifySignature(dataToVerify, pollResponse.data.coordinatorSignature, coordinatorKeys.publicKey);
       assert.ok(isValid, 'Coordinator signature should be valid');

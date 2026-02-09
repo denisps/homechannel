@@ -224,7 +224,7 @@ Before writing any code, verify:
 ✅ Minimal, audited dependencies  
 ✅ Clear, self-documenting code  
 ✅ Proper error handling  
-✅ ECDSA for signatures  
+✅ Ed448 for signatures (configurable Ed25519)  
 ✅ AES-GCM for authenticated encryption  
 ✅ Input validation and sanitization  
 ✅ Tests for critical functionality  

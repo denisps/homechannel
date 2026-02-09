@@ -20,7 +20,7 @@ import {
   hashChallengeAnswer
 } from '../crypto.js';
 
-import { generateECDSAKeyPair } from '../keys.js';
+import { generateSigningKeyPair } from '../keys.js';
 
 import {
   PROTOCOL_VERSION,
@@ -69,20 +69,20 @@ describe('shared crypto utilities', () => {
   test('ECDH shared secret matches on both sides', () => {
     const ecdh1 = generateECDHKeyPair();
     const ecdh2 = generateECDHKeyPair();
-    const secret1 = computeECDHSecret(ecdh1.privateKey, ecdh2.publicKey);
-    const secret2 = computeECDHSecret(ecdh2.privateKey, ecdh1.publicKey);
+    const secret1 = computeECDHSecret(ecdh1.privateKey, ecdh2.publicKey, ecdh1.curve);
+    const secret2 = computeECDHSecret(ecdh2.privateKey, ecdh1.publicKey, ecdh2.curve);
     assert.deepStrictEqual(secret1, secret2);
   });
 
   test('binary signatures verify correctly', () => {
-    const keys = generateECDSAKeyPair();
+    const keys = generateSigningKeyPair();
     const data = Buffer.from('test data');
     const signature = signBinaryData(data, keys.privateKey);
     assert.strictEqual(verifyBinarySignature(data, signature, keys.publicKey), true);
   });
 
   test('binary signatures fail on tampering', () => {
-    const keys = generateECDSAKeyPair();
+    const keys = generateSigningKeyPair();
     const data = Buffer.from('test data');
     const wrongData = Buffer.from('wrong data');
     const signature = signBinaryData(data, keys.privateKey);

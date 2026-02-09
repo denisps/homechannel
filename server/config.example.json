@@ -6,6 +6,10 @@
   },
   "privateKeyPath": "server-private.pem",
   "publicKeyPath": "server-public.pem",
+  "crypto": {
+    "signatureAlgorithm": "ed448",
+    "keyAgreementCurve": "x448"
+  },
   "password": "your-secure-password",
   "services": {
     "files": {

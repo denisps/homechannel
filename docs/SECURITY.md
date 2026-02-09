@@ -4,15 +4,15 @@ HomeChannel's security model balances strong cryptography with minimal overhead.
 
 ## Three-Party Key System
 
-Each component has its own ECDSA key pair:
+Each component has its own Ed25519/Ed448 key pair:
 
 ### 1. Coordinator Keys
-- Own ECDSA P-256 key pair
+- Own Ed448 key pair (configurable Ed25519)
 - Public key trusted by both clients and servers
 - Signs all relayed messages
 
 ### 2. Server Keys
-- Each server has unique ECDSA P-256 key pair
+- Each server has unique Ed448 key pair (configurable Ed25519)
 - Identified by public key
 - Signs all payloads sent through coordinator
 
@@ -23,9 +23,9 @@ Each component has its own ECDSA key pair:
 
 ## Cryptographic Operations
 
-### ECDSA Signatures (P-256)
-- **Curve**: secp256r1 (NIST P-256)
-- **Digest**: SHA-256
+### EdDSA Signatures (Ed25519/Ed448)
+- **Algorithm**: Ed448 (default) or Ed25519
+- **Digest**: Internal to the algorithm (no external hash parameter)
 - **Use**: Initial registration, SDP/candidate exchange
 
 ### AES-GCM Authenticated Encryption
@@ -70,12 +70,12 @@ Prevents brute-force and DDoS attacks on home servers.
 ### Phase 1: Initial Registration (Unencrypted)
 
 **Why unencrypted?**
-- Initial ECDH exchange must be verifiable
-- ECDSA signature provides authenticity
+- Initial X25519/X448 exchange must be verifiable
+- EdDSA signature provides authenticity
 - No shared secret exists yet
 
 **Protection:**
-- ECDSA signature prevents tampering
+- EdDSA signature prevents tampering
 - Coordinator verifies against server's public key
 - Replay attacks mitigated by timestamp checking
 
@@ -83,7 +83,7 @@ Prevents brute-force and DDoS attacks on home servers.
 
 **Why AES-GCM?**
 - Authenticated encryption (confidentiality + authenticity)
-- Single operation for encrypt + authenticate (20-100x faster than ECDSA)
+- Single operation for encrypt + authenticate (20-100x faster than signature verification)
 - Built-in tampering detection
 - Industry standard for secure communication
 
@@ -106,7 +106,7 @@ Once datachannel is established:
 
 ### Protected Against
 
-✅ **Man-in-the-Middle**: ECDSA signatures + AES-GCM encryption
+✅ **Man-in-the-Middle**: Ed25519/Ed448 signatures + AES-GCM encryption
 ✅ **Eavesdropping**: AES-GCM encryption of all sensitive data
 ✅ **Brute-Force**: Challenge-response at coordinator
 ✅ **DDoS**: Server never sees unauthorized attempts

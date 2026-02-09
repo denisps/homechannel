@@ -4,13 +4,13 @@ The coordinator is a publicly accessible signaling server that facilitates WebRT
 
 ## Features
 
-- **UDP Communication**: ECDH-based two-phase registration with binary protocol
+- **UDP Communication**: X25519/X448-based two-phase registration with binary protocol
 - **Memory-Compact State**: Minimal server registry (publicKey → {ipPort, challenge, expectedAnswer, timestamp})
 - **Optimized Protocol**: Tiny keepalive pings (30s), authenticated challenge refresh (10min)
-- **ECDSA Security**: ECDH key exchange signed with ECDSA keys
-- **AES-GCM Encryption**: All communication after ECDH handshake uses authenticated encryption
+- **Ed448 Security**: X25519/X448 key exchange signed with Ed448 keys (configurable Ed25519)
+- **AES-GCM Encryption**: All communication after X25519/X448 handshake uses authenticated encryption
 - **Rate Limiting**: Connection attempt tracking and rate limiting
-- **Auto Cleanup**: Periodic cleanup of expired server records and ECDH sessions
+- **Auto Cleanup**: Periodic cleanup of expired server records and X25519/X448 sessions
 
 ## Installation
 
@@ -35,12 +35,18 @@ Edit `config.json` in the coordinator directory:
   },
   "privateKeyPath": "./keys/coordinator-private.key",
   "publicKeyPath": "./keys/coordinator-public.key",
+  "crypto": {
+    "signatureAlgorithm": "ed448",
+    "keyAgreementCurve": "x448"
+  },
   "maxServers": 1000,
   "serverTimeout": 300000,
   "keepaliveInterval": 30000,
   "challengeRefreshInterval": 600000
 }
 ```
+
+If you change `crypto.signatureAlgorithm`, regenerate coordinator keys to match the new algorithm.
 
 ## Running
 
@@ -82,15 +88,15 @@ npm run test:watch
 Version: `0x01`
 Types: `0x01`=ecdh_init, `0x02`=ecdh_response, `0x03`=register, `0x04`=ping, `0x05`=heartbeat, `0x06`=answer
 
-**Three-Phase ECDH Registration:**
+**Three-Phase X25519/X448 Registration:**
 
 **Phase 1: ECDH Init** (from server, binary payload):
 ```
 Format: [ecdhPubKeyLen(1)][ecdhPubKey]
 
 Fields:
-- ecdhPubKeyLen: 1 byte - length of ECDH public key
-- ecdhPubKey: variable - ECDH public key (raw bytes)
+- ecdhPubKeyLen: 1 byte - length of X25519/X448 public key (SPKI DER)
+- ecdhPubKey: variable - X25519/X448 public key (SPKI DER bytes)
 
 Security: No server identity or signature transmitted. Observer cannot identify which server is connecting.
 ```
@@ -100,18 +106,18 @@ Security: No server identity or signature transmitted. Observer cannot identify 
 Format: [ecdhPubKeyLen(1)][ecdhPubKey][encryptedData]
 
 Fields:
-- ecdhPubKeyLen: 1 byte - length of coordinator's ECDH public key
-- ecdhPubKey: variable - coordinator's ECDH public key (raw bytes)
+- ecdhPubKeyLen: 1 byte - length of coordinator's X25519/X448 public key
+- ecdhPubKey: variable - coordinator's X25519/X448 public key (SPKI DER bytes)
 - encryptedData: variable - AES-GCM encrypted {timestamp, signature}
 
-Both parties compute ECDH shared secret. Coordinator's ECDSA signature on its ECDH public key is encrypted with shared secret. Server verifies coordinator identity using trusted coordinator public key.
+Both parties compute an X25519/X448 shared secret. Coordinator's Ed448 signature on its X25519/X448 public key is encrypted with the shared secret. Server verifies coordinator identity using the trusted coordinator public key (Ed448/Ed25519).
 
 Security: Coordinator proves identity, but signature is encrypted. Observer cannot impersonate coordinator.
 ```
 
 **Phase 3: Registration** (from server, AES-GCM encrypted JSON):
 ```
-Encrypted with key derived from ECDH shared secret
+Encrypted with key derived from X25519/X448 shared secret
 
 JSON payload:
 {
@@ -121,10 +127,10 @@ JSON payload:
     challenge: 'hex-string',
     challengeAnswerHash: 'hex-string'
   },
-  signature: 'ecdsa-hex-signature'
+  signature: 'eddsa-hex-signature'
 }
 
-Security: Server identity (ECDSA public key) and challenge data only revealed after encryption established. Observer cannot see challenge or identify server.
+Security: Server identity (Ed25519/Ed448 public key) and challenge data only revealed after encryption established. Observer cannot see challenge or identify server.
 ```
 
 After registration, expectedAnswer becomes the shared secret for all future communication.
@@ -160,7 +166,7 @@ After registration, expectedAnswer becomes the shared secret for all future comm
     sdp: { type: 'answer', sdp: '...' },
     candidates: [...]
   },
-  signature: 'ecdsa-signature'
+  signature: 'eddsa-signature'
 }
 ```
 
@@ -187,7 +193,7 @@ Map<serverPublicKey, {
 ## Security
 
 - **Binary Protocol**: Version + type bytes avoid fingerprinting
-- **Initial Registration**: ECDSA signature verification (encrypted with ECDH shared secret)
+- **Initial Registration**: Ed448 signature verification (encrypted with X25519/X448 shared secret)
 - **Ongoing Communication**: AES-GCM authenticated encryption using expectedAnswer as key
   - 256-bit AES key derived from expectedAnswer
   - Random IV for each message

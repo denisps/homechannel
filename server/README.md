@@ -28,12 +28,18 @@ Edit `config.json`:
   "password": "your-secure-password",
   "privateKeyPath": "keys/server.key",
   "publicKeyPath": "keys/server.pub",
+  "crypto": {
+    "signatureAlgorithm": "ed448",
+    "keyAgreementCurve": "x448"
+  },
   "port": 0,
   "webrtc": {
     "library": "werift"
   }
 }
 ```
+
+If you change `crypto.signatureAlgorithm`, regenerate server keys to match the new algorithm.
 
 See [../docs/WEBRTC_LIBRARIES.md](../docs/WEBRTC_LIBRARIES.md) for library options.
 
@@ -44,7 +50,7 @@ npm start
 ```
 
 The server will:
-1. Generate or load ECDSA keypair from `keys/`
+1. Generate or load Ed448 keypair from `keys/` (configurable Ed25519)
 2. Connect to coordinator via UDP
 3. Complete registration handshake
 4. Wait for WebRTC connection requests from clients
@@ -172,7 +178,7 @@ server/
 │   ├── router.test.js    # Service router tests
 │   ├── webrtc.test.js    # WebRTC abstraction tests
 │   └── webrtc-connectivity.test.js  # Optional WebRTC tests
-└── keys/                 # ECDSA keypair (generated on first run)
+└── keys/                 # Ed25519/Ed448 keypair (generated on first run)
 ```
 
 ### Adding Services

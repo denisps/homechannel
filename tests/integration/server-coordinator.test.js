@@ -10,7 +10,7 @@ import assert from 'node:assert';
 import { TestCleanupHandler, cleanupClient, createPingCounter } from '../utils/test-helpers.js';
 import { UDPClient, UDPServer } from '../../shared/protocol.js';
 import { ServerRegistry } from '../../coordinator/registry.js';
-import { generateECDSAKeyPair } from '../../shared/keys.js';
+import { generateSigningKeyPair } from '../../shared/keys.js';
 
 describe('Server-Coordinator Integration', () => {
   let cleanup;
@@ -24,7 +24,7 @@ describe('Server-Coordinator Integration', () => {
     
     // Start real coordinator registry
     registry = new ServerRegistry();
-    coordinatorKeys = generateECDSAKeyPair();
+    coordinatorKeys = generateSigningKeyPair();
     
     // Start real UDP server for coordinator
     udpServer = new UDPServer(registry, coordinatorKeys, { port: 0 });
@@ -46,7 +46,7 @@ describe('Server-Coordinator Integration', () => {
   });
 
   test('should complete full registration handshake', async () => {
-    const serverKeys = generateECDSAKeyPair();
+    const serverKeys = generateSigningKeyPair();
     
     // Create real UDPClient with correct options
     const client = new UDPClient(
@@ -86,7 +86,7 @@ describe('Server-Coordinator Integration', () => {
   });
 
   test('should handle keepalive pings', async () => {
-    const serverKeys = generateECDSAKeyPair();
+    const serverKeys = generateSigningKeyPair();
     
     const client = new UDPClient(
       'localhost',
@@ -145,8 +145,8 @@ describe('Server-Coordinator Integration', () => {
   });
 
   test('should reject invalid signatures', async () => {
-    const serverKeys = generateECDSAKeyPair();
-    const wrongKeys = generateECDSAKeyPair();
+    const serverKeys = generateSigningKeyPair();
+    const wrongKeys = generateSigningKeyPair();
     
     // Create mismatched keys object for testing signature failure
     const mismatchedKeys = {

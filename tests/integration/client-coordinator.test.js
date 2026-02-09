@@ -12,7 +12,7 @@ import { TestCleanupHandler, createRequestHelper } from '../utils/test-helpers.j
 import { HTTPSServer } from '../../coordinator/https.js';
 import { ServerRegistry } from '../../coordinator/registry.js';
 import { UDPServer } from '../../shared/protocol.js';
-import { generateECDSAKeyPair } from '../../shared/keys.js';
+import { generateSigningKeyPair } from '../../shared/keys.js';
 import { generateChallenge, hashChallengeAnswer, signData, unwrapPublicKey } from '../../shared/crypto.js';
 import { generateSelfSignedCertificate, isOpenSSLAvailable } from '../../shared/tls.js';
 
@@ -31,7 +31,7 @@ describe('Client-Coordinator HTTPS Integration', () => {
     
     // Create real registry
     registry = new ServerRegistry();
-    coordinatorKeys = generateECDSAKeyPair();
+    coordinatorKeys = generateSigningKeyPair();
     
     // Create a mock UDP server for the HTTPS server
     udpServer = {
@@ -91,7 +91,7 @@ describe('Client-Coordinator HTTPS Integration', () => {
 
   test('POST /api/servers lists registered servers', async () => {
     // Register a test server using correct API: register(serverPublicKey, ipPort, challenge, expectedAnswer)
-    const serverKeys = generateECDSAKeyPair();
+    const serverKeys = generateSigningKeyPair();
     const challenge = generateChallenge();
     const expectedAnswer = hashChallengeAnswer(challenge, 'test-password');
     const serverIpPort = '192.168.1.100:12345';
@@ -117,7 +117,7 @@ describe('Client-Coordinator HTTPS Integration', () => {
 
   test('POST /api/connect initiates connection', async () => {
     // Register a test server using correct API: register(serverPublicKey, ipPort, challenge, expectedAnswer)
-    const serverKeys = generateECDSAKeyPair();
+    const serverKeys = generateSigningKeyPair();
     const challenge = generateChallenge();
     const password = 'test-password';
     const expectedAnswer = hashChallengeAnswer(challenge, password);
@@ -145,7 +145,7 @@ describe('Client-Coordinator HTTPS Integration', () => {
   });
 
   test('POST /api/connect rejects invalid challenge', async () => {
-    const serverKeys = generateECDSAKeyPair();
+    const serverKeys = generateSigningKeyPair();
     const challenge = generateChallenge();
     const password = 'test-password';
     const expectedAnswer = hashChallengeAnswer(challenge, password);
@@ -174,7 +174,7 @@ describe('Client-Coordinator HTTPS Integration', () => {
 
   test('POST /api/poll returns session status', async () => {
     // Register server and create session
-    const serverKeys = generateECDSAKeyPair();
+    const serverKeys = generateSigningKeyPair();
     const challenge = generateChallenge();
     const password = 'test-password';
     const expectedAnswer = hashChallengeAnswer(challenge, password);

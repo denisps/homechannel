@@ -1,7 +1,8 @@
 import fs from 'fs';
 import { ServerRegistry } from './registry.js';
 import { UDPServer } from '../shared/protocol.js';
-import { loadKeys, generateECDSAKeyPair, saveKeys } from '../shared/keys.js';
+import { loadKeys, generateSigningKeyPair, saveKeys, normalizeSignatureAlgorithm } from '../shared/keys.js';
+import { normalizeKeyAgreementCurve } from '../shared/crypto.js';
 import { HTTPSServer } from './https.js';
 
 /**
@@ -19,15 +20,31 @@ class Coordinator {
   }
 
   async init() {
+    const signatureAlgorithm = normalizeSignatureAlgorithm(this.config.crypto?.signatureAlgorithm) || 'ed448';
+    const keyAgreementCurve = normalizeKeyAgreementCurve(this.config.crypto?.keyAgreementCurve) || 'x448';
+
+    this.signatureAlgorithm = signatureAlgorithm;
+    this.keyAgreementCurve = keyAgreementCurve;
+
     // Load or generate coordinator keys
     try {
       this.coordinatorKeys = loadKeys(this.config.privateKeyPath, this.config.publicKeyPath);
       
       if (this.coordinatorKeys) {
+        if (
+          this.coordinatorKeys.signatureAlgorithm &&
+          this.coordinatorKeys.signatureAlgorithm !== signatureAlgorithm
+        ) {
+          throw new Error(
+            `Coordinator keys are ${this.coordinatorKeys.signatureAlgorithm}, expected ${signatureAlgorithm}. ` +
+            'Regenerate keys or update crypto.signatureAlgorithm.'
+          );
+        }
+        this.coordinatorKeys.signatureAlgorithm = signatureAlgorithm;
         console.log('Loaded coordinator keys');
       } else {
         console.log('Generating new coordinator keys...');
-        this.coordinatorKeys = generateECDSAKeyPair();
+        this.coordinatorKeys = generateSigningKeyPair(signatureAlgorithm);
         saveKeys(this.config.privateKeyPath, this.config.publicKeyPath, this.coordinatorKeys);
         console.log('Coordinator keys generated and saved');
       }
@@ -44,7 +61,9 @@ class Coordinator {
 
     // Initialize UDP server
     this.udpServer = new UDPServer(this.registry, this.coordinatorKeys, {
-      port: this.config.udp.port
+      port: this.config.udp.port,
+      keyAgreementCurve,
+      signatureAlgorithm
     });
 
     // Initialize HTTPS server with TLS config from config file
@@ -52,13 +71,19 @@ class Coordinator {
       port: this.config.https.port,
       host: this.config.https.host,
       certPath: this.config.https.certPath,
-      keyPath: this.config.https.keyPath
+      keyPath: this.config.https.keyPath,
+      signatureAlgorithm
     });
 
     // Register answer handler to relay to HTTPS clients
     this.udpServer.on('answer', (answerData, sessionId) => {
       if (this.httpsServer) {
-        this.httpsServer.storeServerAnswer(sessionId, answerData.payload, answerData.signature);
+        this.httpsServer.storeServerAnswer(
+          sessionId,
+          answerData.payload,
+          answerData.signature,
+          answerData.signatureAlgorithm
+        );
       }
     });
 

@@ -72,7 +72,7 @@ npm run test:system
 
 Unit tests validate individual functions and classes in isolation:
 
-- **shared/test/crypto.test.js**: Crypto primitives (AES-GCM, ECDSA, ECDH)
+- **shared/test/crypto.test.js**: Crypto primitives (AES-GCM, Ed25519/Ed448, X25519/X448)
 - **shared/test/protocol.test.js**: Protocol message encoding/decoding
 - **coordinator/test/coordinator.test.js**: Registry and UDP protocol handling
 - **coordinator/test/https.test.js**: HTTPS endpoints

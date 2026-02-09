@@ -17,6 +17,7 @@ export class HTTPSServer {
     this.coordinatorKeys = coordinatorKeys;
     this.udpServer = udpServer;
     this.options = options;
+    this.signatureAlgorithm = options.signatureAlgorithm || coordinatorKeys.signatureAlgorithm || 'ed448';
     
     this.server = null;
     this.sessions = new Map(); // sessionId -> {clientOffer, timestamp, answer}
@@ -259,7 +260,7 @@ export class HTTPSServer {
 
   /**
    * GET /api/coordinator-key
-   * Returns coordinator's ECDSA public key with self-signature
+  * Returns coordinator's Ed25519/Ed448 public key with self-signature
    */
   async handleGetCoordinatorKey(req, res) {
     // Send unwrapped (base64) key for network efficiency
@@ -271,7 +272,8 @@ export class HTTPSServer {
     
     this.sendJSON(res, 200, {
       publicKey: publicKeyBase64,
-      signature
+      signature,
+      signatureAlgorithm: this.signatureAlgorithm
     });
   }
 
@@ -313,7 +315,8 @@ export class HTTPSServer {
       
       this.sendJSON(res, 200, {
         ...response,
-        signature
+        signature,
+        coordinatorSignatureAlgorithm: this.signatureAlgorithm
       });
     } catch (err) {
       console.error('Error in handleListServers:', err);
@@ -395,7 +398,8 @@ export class HTTPSServer {
       
       this.sendJSON(res, 200, {
         ...response,
-        coordinatorSignature
+        coordinatorSignature,
+        coordinatorSignatureAlgorithm: this.signatureAlgorithm
       });
     } catch (err) {
       console.error('Error in handleConnect:', err);
@@ -435,7 +439,8 @@ export class HTTPSServer {
         const response = {
           success: true,
           payload: session.answer.payload,
-          serverSignature: session.answer.signature
+          serverSignature: session.answer.signature,
+          serverSignatureAlgorithm: session.answer.signatureAlgorithm
         };
         
         const coordinatorSignature = signData(response, this.coordinatorKeys.privateKey);
@@ -445,7 +450,8 @@ export class HTTPSServer {
         
         this.sendJSON(res, 200, {
           ...response,
-          coordinatorSignature
+          coordinatorSignature,
+          coordinatorSignatureAlgorithm: this.signatureAlgorithm
         });
       } else {
         // Still waiting
@@ -458,7 +464,8 @@ export class HTTPSServer {
         
         this.sendJSON(res, 200, {
           ...response,
-          coordinatorSignature
+          coordinatorSignature,
+          coordinatorSignatureAlgorithm: this.signatureAlgorithm
         });
       }
     } catch (err) {
@@ -471,10 +478,10 @@ export class HTTPSServer {
    * Store server answer for a session
    * Called by UDP server when server responds
    */
-  storeServerAnswer(sessionId, payload, signature) {
+  storeServerAnswer(sessionId, payload, signature, signatureAlgorithm) {
     const session = this.sessions.get(sessionId);
     if (session) {
-      session.answer = { payload, signature };
+      session.answer = { payload, signature, signatureAlgorithm };
     }
   }
 

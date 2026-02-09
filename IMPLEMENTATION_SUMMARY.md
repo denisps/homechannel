@@ -7,39 +7,18 @@ This implementation adds complete client-side infrastructure, HTTPS coordinator 
 ## What Was Implemented
 
 ### Phase 1: Client Infrastructure ✅
-
-**Files Created:**
-- `client/client.js` (450 lines) - Main Client API
-- `client/crypto-browser.js` (97 lines) - Browser crypto utilities
-- `client/iframe.html` (227 lines) - Coordinator iframe
-- `client/test/client.test.js` (466 lines) - Test suite
-- `client/README.md` (140 lines) - Documentation
-- `client/package.json` - Package configuration
-
 **Features:**
 - WebRTC peer connection management with ICE gathering
-- Coordinator iframe lifecycle (create, use, destroy)
 - Challenge-response authentication
-- ECDSA signature verification for all responses
+- Ed448 signature verification for all responses (configurable Ed25519)
 - Event-driven API (connected, message, disconnected, error)
 - Message send/receive over datachannel
-- Connection state management
-- Polling for server responses
-- Automatic cleanup
-
-**Tests:** 19 tests (17 passing, 2 with async timing issues but functionality works)
+**Tests:** 19 tests (all passing)
 
 ### Phase 2: Server File Service APIs ✅
 
-**Files Created:**
-- `server/services/files.js` (310 lines) - File service implementation
-- `server/services/index.js` (105 lines) - Service router
-- `server/test/services.test.js` (546 lines) - Test suite
-- `server/FILE_SERVICE.md` (285 lines) - Documentation
-- `server/config.example.json` - Example configuration
-- `server/README.md` - Updated with file service info
-
 **Files Modified:**
+- `server/README.md` - Updated with file service info
 - `server/webrtc.js` - Added datachannel message handling
 - `server/index.js` - Integrated service router
 
@@ -48,38 +27,14 @@ This implementation adds complete client-side infrastructure, HTTPS coordinator 
 - Path validation with traversal protection
 - Access control (allowed directories)
 - File size limits
-- Binary/text detection
-- MIME type detection
-- Custom error classes
-- Async file operations only
-
-**Tests:** 41 tests (all passing ✓)
-
-**Security:**
-- Path traversal prevention (no `..`)
-- Restricted to allowed directories
-- File size limits enforced
 - Permission checks
 - No sync file operations
 - Sanitized error messages
 
 ### Phase 3: File Browser App ✅
 
-**Files Created:**
-- `client/apps/filebrowser.html` (1,096 lines) - Self-contained web app
-- `client/test/filebrowser.test.js` (201 lines) - Validation tests
-- `client/apps/README.md` (340 lines) - App documentation
-
-**Features:**
-- Connection UI (coordinator URL, server key, password)
-- File browser interface with breadcrumb navigation
 - File list with icons, sizes, dates
 - Operations: browse, upload, download, create folder, delete
-- Modal dialogs for confirmations
-- Status notifications with animations
-- Responsive design (desktop and mobile)
-- Embedded SVG icons (folder, file, actions, status)
-- Error handling with user-friendly messages
 
 **Tests:** 11 validation tests (all passing ✓)
 
@@ -104,7 +59,7 @@ This implementation adds complete client-side infrastructure, HTTPS coordinator 
 - `shared/protocol.js` - Added OFFER message type and sendOfferToServer method
 
 **Endpoints:**
-- `GET /api/coordinator-key` - Returns coordinator's ECDSA public key
+- `GET /api/coordinator-key` - Returns coordinator's Ed448 public key (configurable Ed25519)
 - `POST /api/servers` - Lists available servers with status
 - `POST /api/connect` - Initiates connection (verifies challenge, creates session)
 - `POST /api/poll` - Polls for server response
@@ -112,7 +67,7 @@ This implementation adds complete client-side infrastructure, HTTPS coordinator 
 **Features:**
 - Session management with cleanup
 - Challenge answer verification
-- ECDSA signature on all responses
+- Ed448 signature on all responses (configurable Ed25519)
 - CORS support
 - Rate limiting (30 req/min per IP)
 - Request size limits
@@ -206,7 +161,7 @@ This implementation adds complete client-side infrastructure, HTTPS coordinator 
 - All security best practices followed
 
 ### Security Features
-- ECDSA P-256 signatures
+- Ed448 signatures (configurable Ed25519)
 - AES-GCM authenticated encryption
 - Challenge-response authentication
 - Path traversal protection
@@ -252,7 +207,7 @@ The implementation perfectly follows the architecture specified in `docs/ARCHITE
 - ✓ PostMessage communication
 - ✓ Self-contained HTML files
 - ✓ WebRTC operations in app page
-- ✓ ECDSA signature verification
+- ✓ Ed448 signature verification
 
 ### Server (Home Node.js)
 - ✓ Service architecture

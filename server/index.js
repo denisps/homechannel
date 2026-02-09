@@ -3,7 +3,8 @@ import { promises as fsPromises } from 'fs';
 import path from 'path';
 import { UDPClient } from '../shared/protocol.js';
 import { createWebRTCPeer, displayWebRTCStatus } from './webrtc.js';
-import { loadKeys, generateECDSAKeyPair, saveKeys } from '../shared/keys.js';
+import { loadKeys, generateSigningKeyPair, saveKeys, normalizeSignatureAlgorithm } from '../shared/keys.js';
+import { normalizeKeyAgreementCurve } from '../shared/crypto.js';
 import { ServiceRouter } from './services/index.js';
 
 /**
@@ -25,15 +26,28 @@ class Server {
     // Display WebRTC library status
     await displayWebRTCStatus();
 
+    const signatureAlgorithm = normalizeSignatureAlgorithm(this.config.crypto?.signatureAlgorithm) || 'ed448';
+    const keyAgreementCurve = normalizeKeyAgreementCurve(this.config.crypto?.keyAgreementCurve) || 'x448';
+
+    this.signatureAlgorithm = signatureAlgorithm;
+    this.keyAgreementCurve = keyAgreementCurve;
+
     // Load or generate server keys
     try {
       this.serverKeys = loadKeys(this.config.privateKeyPath, this.config.publicKeyPath);
       
       if (this.serverKeys) {
+        if (this.serverKeys.signatureAlgorithm && this.serverKeys.signatureAlgorithm !== signatureAlgorithm) {
+          throw new Error(
+            `Server keys are ${this.serverKeys.signatureAlgorithm}, expected ${signatureAlgorithm}. ` +
+            'Regenerate keys or update crypto.signatureAlgorithm.'
+          );
+        }
+        this.serverKeys.signatureAlgorithm = signatureAlgorithm;
         console.log('Loaded server keys');
       } else {
         console.log('Generating new server keys...');
-        this.serverKeys = generateECDSAKeyPair();
+        this.serverKeys = generateSigningKeyPair(signatureAlgorithm);
         saveKeys(this.config.privateKeyPath, this.config.publicKeyPath, this.serverKeys);
         console.log('Server keys generated and saved');
       }
@@ -57,7 +71,9 @@ class Server {
       this.config.coordinator.port,
       this.serverKeys,
       {
-        coordinatorPublicKey: this.config.coordinator.publicKey || null
+        coordinatorPublicKey: this.config.coordinator.publicKey || null,
+        keyAgreementCurve,
+        signatureAlgorithm
       }
     );
 

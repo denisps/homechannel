@@ -3,7 +3,7 @@ import assert from 'node:assert';
 import { UDPClient } from '../../shared/protocol.js';
 import { UDPServer } from '../../shared/protocol.js';
 import { ServerRegistry } from '../../coordinator/registry.js';
-import { generateECDSAKeyPair } from '../../shared/keys.js';
+import { generateSigningKeyPair } from '../../shared/keys.js';
 import { encryptAES, deriveAESKey } from '../../shared/crypto.js';
 import { buildUDPMessage, MESSAGE_TYPES } from '../../shared/protocol.js';
 
@@ -37,8 +37,8 @@ describe('Coordinator Migration', () => {
 
   before(async () => {
     // Generate keys
-    coordinatorKeys = generateECDSAKeyPair();
-    serverKeys = generateECDSAKeyPair();
+    coordinatorKeys = generateSigningKeyPair();
+    serverKeys = generateSigningKeyPair();
     serverKeys.password = 'test-password';
 
     // Setup registry

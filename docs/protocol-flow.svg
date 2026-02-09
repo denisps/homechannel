@@ -226,7 +226,7 @@
     
     <text x="40" y="1735" font-size="12" fill="#666">• Binary protocol: [Version][Type][Payload]</text>
     <text x="320" y="1735" font-size="12" fill="#666">• AES-GCM encryption after registration</text>
-    <text x="620" y="1735" font-size="12" fill="#666">• ECDSA signatures for authentication</text>
+    <text x="620" y="1735" font-size="12" fill="#666">• Ed25519/Ed448 signatures for authentication</text>
     <text x="960" y="1735" font-size="12" fill="#666">• Source IP untrusted at HELLO stage</text>
   </g>
 </svg>
