@@ -413,6 +413,7 @@ describe('HTTPS Server', () => {
 
   describe('Rate limiting', () => {
     test('should rate limit excessive requests', async () => {
+      httpsServer.rateLimitMap.clear();
       // Make many requests quickly
       const promises = [];
       for (let i = 0; i < 35; i++) {
@@ -423,6 +424,9 @@ describe('HTTPS Server', () => {
       const rateLimited = responses.some(r => r.status === 429);
       
       assert.ok(rateLimited, 'Should rate limit after many requests');
+
+      // Reset after test to avoid contaminating following tests
+      httpsServer.rateLimitMap.clear();
     });
   });
 
@@ -477,39 +481,18 @@ describe('HTTPS Server', () => {
 
   describe('Error handling', () => {
     test('should return 404 for unknown routes', async (t) => {
-      // Use a fresh server to avoid rate limiting from previous tests
-      const testRegistry = new ServerRegistry();
-      const testHttpsServer = new HTTPSServer(testRegistry, coordinatorKeys, mockUdpServer, {
-        port: 8446,
-        host: 'localhost'
-      });
-      
-      await testHttpsServer.start();
-      
-      const response = await makeRequest('GET', '/api/unknown', null, 8446);
+      const response = await makeRequest('GET', '/api/unknown', null, testPort);
       
       assert.strictEqual(response.status, 404);
       assert.ok(response.data.error);
-      
-      await testHttpsServer.stop();
-      testRegistry.destroy();
     });
 
     test('should handle malformed JSON', async (t) => {
-      // Use a fresh server to avoid rate limiting from previous tests
-      const testRegistry = new ServerRegistry();
-      const testHttpsServer = new HTTPSServer(testRegistry, coordinatorKeys, mockUdpServer, {
-        port: 8447,
-        host: 'localhost'
-      });
-      
-      await testHttpsServer.start();
-
       const { result: response, errors } = await withConsoleErrorCapture(() => {
         return new Promise((resolve, reject) => {
           const req = http.request({
             hostname: 'localhost',
-            port: 8447,
+            port: testPort,
             path: '/api/servers',
             method: 'POST',
             headers: { 'Content-Type': 'application/json' }
@@ -545,9 +528,9 @@ describe('HTTPS Server', () => {
         errors.some((message) => message.includes('Invalid JSON')),
         'Expected Invalid JSON to be logged'
       );
-      
-      await testHttpsServer.stop();
-      testRegistry.destroy();
+
+      const healthResponse = await makeRequest('GET', '/api/coordinator-key', null, testPort);
+      assert.strictEqual(healthResponse.status, 200);
     });
   });
 
