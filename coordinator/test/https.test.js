@@ -9,6 +9,29 @@ import { generateSigningKeyPair } from '../../shared/keys.js';
 import { signData, verifySignature, generateChallenge, hashChallengeAnswer } from '../../shared/crypto.js';
 import { generateSelfSignedCertificate, isOpenSSLAvailable } from '../../shared/tls.js';
 
+function withConsoleErrorCapture(fn) {
+  const originalConsoleError = console.error;
+  const errors = [];
+  console.error = (...args) => {
+    errors.push(args.join(' '));
+  };
+
+  const restore = () => {
+    console.error = originalConsoleError;
+  };
+
+  return Promise.resolve()
+    .then(fn)
+    .then((result) => {
+      restore();
+      return { result, errors };
+    })
+    .catch((err) => {
+      restore();
+      throw err;
+    });
+}
+
 /**
  * Helper to make HTTP/HTTPS requests
  */
@@ -481,33 +504,40 @@ describe('HTTPS Server', () => {
       });
       
       await testHttpsServer.start();
-      
-      const response = await new Promise((resolve, reject) => {
-        const req = http.request({
-          hostname: 'localhost',
-          port: 8447,
-          path: '/api/servers',
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' }
-        }, (res) => {
-          let data = '';
-          res.on('data', chunk => data += chunk);
-          res.on('end', () => {
-            try {
-              const parsed = JSON.parse(data);
-              resolve({ status: res.statusCode, data: parsed });
-            } catch (err) {
-              resolve({ status: res.statusCode, data: {} });
-            }
+
+      const { result: response, errors } = await withConsoleErrorCapture(() => {
+        return new Promise((resolve, reject) => {
+          const req = http.request({
+            hostname: 'localhost',
+            port: 8447,
+            path: '/api/servers',
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+          }, (res) => {
+            let data = '';
+            res.on('data', chunk => data += chunk);
+            res.on('end', () => {
+              try {
+                const parsed = JSON.parse(data);
+                resolve({ status: res.statusCode, data: parsed });
+              } catch (err) {
+                resolve({ status: res.statusCode, data: {} });
+              }
+            });
           });
+
+          req.on('error', reject);
+          req.write('invalid json{');
+          req.end();
         });
-        
-        req.on('error', reject);
-        req.write('invalid json{');
-        req.end();
       });
-      
+
       assert.strictEqual(response.status, 400);
+      assert.ok(errors.length > 0, 'Expected malformed JSON to be logged');
+      assert.ok(
+        errors.some((message) => message.includes('Invalid JSON')),
+        'Expected Invalid JSON to be logged'
+      );
       
       await testHttpsServer.stop();
       testRegistry.destroy();
