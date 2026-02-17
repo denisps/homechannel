@@ -59,7 +59,6 @@ This implementation adds complete client-side infrastructure, HTTPS coordinator 
 - `shared/protocol.js` - Added OFFER message type and sendOfferToServer method
 
 **Endpoints:**
-- `GET /api/coordinator-key` - Returns coordinator's Ed448 public key (configurable Ed25519)
 - `POST /api/servers` - Lists available servers with status
 - `POST /api/connect` - Initiates connection (verifies challenge, creates session)
 - `POST /api/poll` - Polls for server response
@@ -67,7 +66,6 @@ This implementation adds complete client-side infrastructure, HTTPS coordinator 
 **Features:**
 - Session management with cleanup
 - Challenge answer verification
-- Ed448 signature on all responses (configurable Ed25519)
 - CORS support
 - Rate limiting (30 req/min per IP)
 - Request size limits
@@ -77,7 +75,6 @@ This implementation adds complete client-side infrastructure, HTTPS coordinator 
 **Tests:** 30 tests (all passing ✓)
 
 **Security:**
-- All responses signed
 - Challenge verification
 - Timing-safe comparisons
 - Rate limiting

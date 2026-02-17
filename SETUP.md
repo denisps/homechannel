@@ -233,7 +233,7 @@ sudo ufw allow 8443/tcp
 
 **Solutions:**
 1. Check coordinator URL and port in server config
-2. Verify coordinator is running: `curl https://coordinator:8443/api/coordinator-key`
+2. Verify coordinator is running: `curl -X POST https://coordinator:8443/api/servers -d '{"serverPublicKeys":[]}' -H 'Content-Type: application/json'`
 3. Check firewall allows UDP 3478 outbound
 4. Verify coordinator public key is correct
 

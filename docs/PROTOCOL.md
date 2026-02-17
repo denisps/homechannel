@@ -276,19 +276,6 @@ Binary: [0x01][0xFF]
 
 Client connects via standard HTTPS polling (no WebSockets).
 
-### Get Coordinator Key
-
-```
-GET /api/coordinator-key
-
-Response:
-{
-  publicKey: 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE...', // Base64 (unwrapped, no PEM headers)
-  signature: 'self-signed-for-verification',
-  signatureAlgorithm: 'ed448'
-}
-```
-
 ### List Servers
 
 ```
@@ -308,9 +295,7 @@ Response:
       online: true,
       challenge: 'current-challenge-hex'
     }
-  ],
-  signature: 'coordinator-eddsa-signature',
-  coordinatorSignatureAlgorithm: 'ed448'
+  ]
 }
 ```
 
@@ -339,9 +324,7 @@ Response:
 {
   success: true,
   sessionId: 'unique-session-id',
-  message: 'Waiting for server response',
-  coordinatorSignature: 'coordinator-eddsa-signature',
-  coordinatorSignatureAlgorithm: 'ed448'
+  message: 'Waiting for server response'
 }
 ```
 
@@ -366,17 +349,13 @@ Response (when ready):
     ]
   },
   serverSignature: 'server-eddsa-signature',
-  serverSignatureAlgorithm: 'ed448',
-  coordinatorSignature: 'coordinator-eddsa-signature',
-  coordinatorSignatureAlgorithm: 'ed448'
+  serverSignatureAlgorithm: 'ed448'
 }
 
 Response (waiting):
 {
   success: false,
-  waiting: true,
-  coordinatorSignature: 'coordinator-eddsa-signature',
-  coordinatorSignatureAlgorithm: 'ed448'
+  waiting: true
 }
 ```
 

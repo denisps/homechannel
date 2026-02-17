@@ -138,20 +138,19 @@ Register event handler.
 ## Connection Flow
 
 1. **Create iframe**: Coordinator iframe loaded for signaling
-2. **Get coordinator key**: Retrieve coordinator's Ed25519/Ed448 public key
-3. **Get challenge**: Fetch server's current challenge
-4. **Compute answer**: Hash challenge + password
-5. **Create offer**: Generate WebRTC offer and gather ICE candidates
-6. **Send offer**: Send offer + candidates + challenge answer to coordinator
-7. **Poll for answer**: Wait for server's answer and ICE candidates
-8. **Verify signature**: Validate server's Ed25519/Ed448 signature on answer
-9. **Establish datachannel**: Set remote description and add ICE candidates
-10. **Delete iframe**: Remove iframe after datachannel opens
-11. **Ready**: Connection established, can send/receive messages
+2. **Get challenge**: Fetch server's current challenge
+3. **Compute answer**: Hash challenge + password
+4. **Create offer**: Generate WebRTC offer and gather ICE candidates
+5. **Send offer**: Send offer + candidates + challenge answer to coordinator
+6. **Poll for answer**: Wait for server's answer and ICE candidates
+7. **Verify signature**: Validate server's Ed25519/Ed448 signature on answer
+8. **Establish datachannel**: Set remote description and add ICE candidates
+9. **Delete iframe**: Remove iframe after datachannel opens
+10. **Ready**: Connection established, can send/receive messages
 
 ## Security
 
-- All coordinator and server responses are signature-verified using Ed25519/Ed448 (per response metadata)
+- Server responses are signature-verified using Ed25519/Ed448 (per response metadata)
 - Challenge-response prevents unauthorized access
 - Iframe isolation sandboxes coordinator communication
 - Only trusted server public keys should be used

@@ -2,7 +2,7 @@ import http from 'http';
 import https from 'https';
 import crypto from 'crypto';
 import fs from 'fs';
-import { signData, hashChallengeAnswer, unwrapPublicKey } from '../shared/crypto.js';
+import { hashChallengeAnswer, unwrapPublicKey } from '../shared/crypto.js';
 
 /**
  * HTTPS server for client-coordinator communication
@@ -17,7 +17,6 @@ export class HTTPSServer {
     this.coordinatorKeys = coordinatorKeys;
     this.udpServer = udpServer;
     this.options = options;
-    this.signatureAlgorithm = options.signatureAlgorithm || coordinatorKeys.signatureAlgorithm || 'ed448';
     
     this.server = null;
     this.sessions = new Map(); // sessionId -> {clientOffer, timestamp, answer}
@@ -172,9 +171,7 @@ export class HTTPSServer {
     // Route handling
     const url = new URL(req.url, `http://${req.headers.host}`);
     
-    if (req.method === 'GET' && url.pathname === '/api/coordinator-key') {
-      await this.handleGetCoordinatorKey(req, res);
-    } else if (req.method === 'POST' && url.pathname === '/api/servers') {
+    if (req.method === 'POST' && url.pathname === '/api/servers') {
       await this.handleListServers(req, res);
     } else if (req.method === 'POST' && url.pathname === '/api/connect') {
       await this.handleConnect(req, res);
@@ -259,25 +256,6 @@ export class HTTPSServer {
   }
 
   /**
-   * GET /api/coordinator-key
-  * Returns coordinator's Ed25519/Ed448 public key with self-signature
-   */
-  async handleGetCoordinatorKey(req, res) {
-    // Send unwrapped (base64) key for network efficiency
-    const publicKeyBase64 = unwrapPublicKey(this.coordinatorKeys.publicKey);
-    
-    // Create self-signature (sign the base64 version)
-    const data = { publicKey: publicKeyBase64 };
-    const signature = signData(data, this.coordinatorKeys.privateKey);
-    
-    this.sendJSON(res, 200, {
-      publicKey: publicKeyBase64,
-      signature,
-      signatureAlgorithm: this.signatureAlgorithm
-    });
-  }
-
-  /**
    * POST /api/servers
    * Lists available servers
    */
@@ -310,14 +288,7 @@ export class HTTPSServer {
         }
       }
       
-      const response = { servers };
-      const signature = signData(response, this.coordinatorKeys.privateKey);
-      
-      this.sendJSON(res, 200, {
-        ...response,
-        signature,
-        coordinatorSignatureAlgorithm: this.signatureAlgorithm
-      });
+      this.sendJSON(res, 200, { servers });
     } catch (err) {
       console.error('Error in handleListServers:', err);
       this.sendError(res, 400, err.message);
@@ -394,13 +365,7 @@ export class HTTPSServer {
         message: 'Waiting for server response'
       };
       
-      const coordinatorSignature = signData(response, this.coordinatorKeys.privateKey);
-      
-      this.sendJSON(res, 200, {
-        ...response,
-        coordinatorSignature,
-        coordinatorSignatureAlgorithm: this.signatureAlgorithm
-      });
+      this.sendJSON(res, 200, response);
     } catch (err) {
       console.error('Error in handleConnect:', err);
       this.sendError(res, 400, err.message);
@@ -443,30 +408,18 @@ export class HTTPSServer {
           serverSignatureAlgorithm: session.answer.signatureAlgorithm
         };
         
-        const coordinatorSignature = signData(response, this.coordinatorKeys.privateKey);
-        
         // Clean up session after successful poll
         this.sessions.delete(sessionId);
-        
-        this.sendJSON(res, 200, {
-          ...response,
-          coordinatorSignature,
-          coordinatorSignatureAlgorithm: this.signatureAlgorithm
-        });
+
+        this.sendJSON(res, 200, response);
       } else {
         // Still waiting
         const response = {
           success: false,
           waiting: true
         };
-        
-        const coordinatorSignature = signData(response, this.coordinatorKeys.privateKey);
-        
-        this.sendJSON(res, 200, {
-          ...response,
-          coordinatorSignature,
-          coordinatorSignatureAlgorithm: this.signatureAlgorithm
-        });
+
+        this.sendJSON(res, 200, response);
       }
     } catch (err) {
       console.error('Error in handlePoll:', err);

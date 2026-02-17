@@ -13,7 +13,7 @@ import { HTTPSServer } from '../../coordinator/https.js';
 import { ServerRegistry } from '../../coordinator/registry.js';
 import { UDPServer } from '../../shared/protocol.js';
 import { generateSigningKeyPair } from '../../shared/keys.js';
-import { generateChallenge, hashChallengeAnswer, signData, unwrapPublicKey } from '../../shared/crypto.js';
+import { generateChallenge, hashChallengeAnswer, unwrapPublicKey } from '../../shared/crypto.js';
 import { generateSelfSignedCertificate, isOpenSSLAvailable } from '../../shared/tls.js';
 
 describe('Client-Coordinator HTTPS Integration', () => {
@@ -79,16 +79,6 @@ describe('Client-Coordinator HTTPS Integration', () => {
     await cleanup.cleanup();
   });
 
-  test('GET /api/coordinator-key returns valid key', async () => {
-    const response = await makeRequest('GET', '/api/coordinator-key');
-    
-    assert.strictEqual(response.statusCode, 200);
-    assert.ok(response.body.publicKey, 'Should have publicKey');
-    assert.ok(response.body.signature, 'Should have signature');
-    assert.ok(!response.body.publicKey.includes('BEGIN PUBLIC KEY'), 'Should be base64 format (unwrapped)');
-    assert.ok(response.body.publicKey.length > 50, 'Should have substantial base64 content');
-  });
-
   test('POST /api/servers lists registered servers', async () => {
     // Register a test server using correct API: register(serverPublicKey, ipPort, challenge, expectedAnswer)
     const serverKeys = generateSigningKeyPair();
@@ -107,7 +97,6 @@ describe('Client-Coordinator HTTPS Integration', () => {
     
     assert.strictEqual(response.statusCode, 200);
     assert.ok(Array.isArray(response.body.servers), 'Should have servers array');
-    assert.ok(response.body.signature, 'Should have signature');
     
     const server = response.body.servers.find(s => s.publicKeyHash === serverKeyBase64);
     assert.ok(server, 'Should find registered server');
@@ -140,7 +129,6 @@ describe('Client-Coordinator HTTPS Integration', () => {
     
     assert.strictEqual(response.statusCode, 200);
     assert.ok(response.body.sessionId, 'Should have sessionId');
-    assert.ok(response.body.coordinatorSignature, 'Should have coordinatorSignature');
     assert.strictEqual(response.body.success, true);
   });
 
@@ -204,13 +192,14 @@ describe('Client-Coordinator HTTPS Integration', () => {
     });
     
     assert.strictEqual(pollResponse.statusCode, 200);
-    assert.ok(pollResponse.body.coordinatorSignature, 'Should have coordinatorSignature');
     // Status should be waiting since server hasn't responded yet
     assert.strictEqual(pollResponse.body.waiting, true, 'Should be waiting for server response');
   });
 
   test('CORS headers are present', async () => {
-    const response = await makeRequest('GET', '/api/coordinator-key');
+    const response = await makeRequest('POST', '/api/servers', {
+      serverPublicKeys: []
+    });
     
     assert.ok(response.headers['access-control-allow-origin'], 'Should have CORS origin header');
     assert.ok(response.headers['access-control-allow-methods'], 'Should have CORS methods header');
@@ -221,7 +210,9 @@ describe('Client-Coordinator HTTPS Integration', () => {
     const requests = [];
     for (let i = 0; i < 100; i++) {
       requests.push(
-        makeRequest('GET', '/api/coordinator-key').catch(err => ({ error: err }))
+        makeRequest('POST', '/api/servers', {
+          serverPublicKeys: []
+        }).catch(err => ({ error: err }))
       );
     }
     

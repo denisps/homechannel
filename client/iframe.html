@@ -154,11 +154,6 @@
           let result;
           
           switch (method) {
-            case 'getCoordinatorKey':
-              updateStatus('Getting coordinator key...');
-              result = await apiCall('/api/coordinator-key');
-              break;
-              
             case 'getServerInfo':
               updateStatus('Checking server status...');
               const serversResponse = await apiCall('/api/servers', {

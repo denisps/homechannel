@@ -148,7 +148,6 @@ class Client {
       this.iframe = null;
       this.peerConnection = null;
       this.dataChannel = null;
-      this.coordinatorPublicKey = null;
       this.serverPublicKey = null;
       this.sessionId = null;
       this.state = 'disconnected'; // disconnected, connecting, connected
@@ -211,22 +210,6 @@ class Client {
         
         // Create and setup iframe
         await this.createIframe();
-        
-        // Get coordinator's public key
-        const coordinatorKey = await this.iframeRequest('getCoordinatorKey');
-        this.coordinatorPublicKey = coordinatorKey.publicKey;
-        
-        // Verify coordinator's self-signature (optional but good practice)
-        const isValid = await verifySignature(
-          { publicKey: coordinatorKey.publicKey },
-          coordinatorKey.signature,
-          coordinatorKey.publicKey,
-          coordinatorKey.signatureAlgorithm || DEFAULT_SIGNATURE_ALGORITHM
-        );
-        
-        if (!isValid) {
-          throw new Error('Invalid coordinator key signature');
-        }
         
         // Get server challenge
         const serverInfo = await this.iframeRequest('getServerInfo', {

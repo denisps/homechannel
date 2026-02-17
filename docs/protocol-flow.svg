@@ -121,19 +121,9 @@
   <rect x="20" y="860" width="1160" height="30" fill="#f5f5f5" stroke="#999" stroke-width="1"/>
   <text x="600" y="880" text-anchor="middle" font-weight="bold" fill="#555">CLIENT CONNECTION (HTTPS Polling + WebRTC)</text>
   
-  <!-- Step 1: Get coordinator key -->
-  <g id="client-step1">
-    <text x="20" y="920" font-weight="bold" fill="#1976d2">1. Get Coordinator Key</text>
-    <line x1="110" y1="930" x2="600" y2="930" stroke="#1976d2" stroke-width="2" marker-end="url(#arrowhead-blue)"/>
-    <text x="250" y="925" fill="#1976d2">GET /api/coordinator-key</text>
-    
-    <line x1="600" y1="950" x2="110" y2="950" stroke="#1976d2" stroke-width="2" marker-end="url(#arrowhead-blue)"/>
-    <text x="250" y="945" fill="#1976d2">coordinatorPublicKey</text>
-  </g>
-  
-  <!-- Step 2: List servers -->
+  <!-- Step 1: List servers -->
   <g id="client-step2">
-    <text x="20" y="990" font-weight="bold" fill="#1976d2">2. List Servers</text>
+    <text x="20" y="990" font-weight="bold" fill="#1976d2">1. List Servers</text>
     <line x1="110" y1="1000" x2="600" y2="1000" stroke="#1976d2" stroke-width="2" marker-end="url(#arrowhead-blue)"/>
     <text x="250" y="995" fill="#1976d2">POST /api/servers</text>
     
@@ -141,9 +131,9 @@
     <text x="250" y="1015" fill="#1976d2">{servers: [{challenge, online}]}</text>
   </g>
   
-  <!-- Step 3: Compute challenge answer -->
+  <!-- Step 2: Compute challenge answer -->
   <g id="client-step3">
-    <text x="20" y="1060" font-weight="bold" fill="#1976d2">3. Compute Challenge Answer</text>
+    <text x="20" y="1060" font-weight="bold" fill="#1976d2">2. Compute Challenge Answer</text>
     <rect x="30" y="1070" width="160" height="50" fill="#e3f2fd" stroke="#1976d2" stroke-width="1" rx="3"/>
     <text x="110" y="1090" text-anchor="middle" font-size="12">answer = SHA256(</text>
     <text x="110" y="1105" text-anchor="middle" font-size="12">challenge + password)</text>

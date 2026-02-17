@@ -6,7 +6,7 @@ import { HTTPSServer } from '../https.js';
 import { ServerRegistry } from '../registry.js';
 import { UDPServer } from '../../shared/protocol.js';
 import { generateSigningKeyPair } from '../../shared/keys.js';
-import { signData, verifySignature, generateChallenge, hashChallengeAnswer } from '../../shared/crypto.js';
+import { generateChallenge, hashChallengeAnswer } from '../../shared/crypto.js';
 import { generateSelfSignedCertificate, isOpenSSLAvailable } from '../../shared/tls.js';
 
 function withConsoleErrorCapture(fn) {
@@ -109,21 +109,6 @@ describe('HTTPS Server', () => {
     registry.destroy();
   });
 
-  describe('GET /api/coordinator-key', () => {
-    test('should return coordinator public key with signature', async () => {
-      const response = await makeRequest('GET', '/api/coordinator-key', null, testPort);
-      
-      assert.strictEqual(response.status, 200);
-      assert.ok(response.data.publicKey);
-      assert.ok(response.data.signature);
-      
-      // Verify signature (response is base64, sign with wrapped PEM for verification)
-      const data = { publicKey: response.data.publicKey };
-      const isValid = verifySignature(data, response.data.signature, coordinatorKeys.publicKey);
-      assert.ok(isValid, 'Signature should be valid');
-    });
-  });
-
   describe('POST /api/servers', () => {
     test('should return empty list for unknown servers', async () => {
       const response = await makeRequest('POST', '/api/servers', {
@@ -133,7 +118,6 @@ describe('HTTPS Server', () => {
       assert.strictEqual(response.status, 200);
       assert.ok(Array.isArray(response.data.servers));
       assert.strictEqual(response.data.servers.length, 0);
-      assert.ok(response.data.signature);
     });
 
     test('should return known servers with their info', async () => {
@@ -157,11 +141,6 @@ describe('HTTPS Server', () => {
       assert.ok(server.name);
       assert.strictEqual(server.online, true);
       assert.strictEqual(server.challenge, challenge);
-      
-      // Verify coordinator signature
-      const dataToVerify = { servers: response.data.servers };
-      const isValid = verifySignature(dataToVerify, response.data.signature, coordinatorKeys.publicKey);
-      assert.ok(isValid, 'Coordinator signature should be valid');
     });
 
     test('should handle invalid request body', async () => {
@@ -198,16 +177,6 @@ describe('HTTPS Server', () => {
       assert.strictEqual(response.data.success, true);
       assert.ok(response.data.sessionId);
       assert.ok(response.data.message);
-      assert.ok(response.data.coordinatorSignature);
-      
-      // Verify coordinator signature
-      const dataToVerify = {
-        success: response.data.success,
-        sessionId: response.data.sessionId,
-        message: response.data.message
-      };
-      const isValid = verifySignature(dataToVerify, response.data.coordinatorSignature, coordinatorKeys.publicKey);
-      assert.ok(isValid, 'Coordinator signature should be valid');
     });
 
     test('should reject with invalid challenge answer', async () => {
@@ -310,15 +279,6 @@ describe('HTTPS Server', () => {
       assert.strictEqual(pollResponse.status, 200);
       assert.strictEqual(pollResponse.data.success, false);
       assert.strictEqual(pollResponse.data.waiting, true);
-      assert.ok(pollResponse.data.coordinatorSignature);
-      
-      // Verify signature
-      const dataToVerify = {
-        success: pollResponse.data.success,
-        waiting: pollResponse.data.waiting
-      };
-      const isValid = verifySignature(dataToVerify, pollResponse.data.coordinatorSignature, coordinatorKeys.publicKey);
-      assert.ok(isValid, 'Coordinator signature should be valid');
     });
 
     test('should return answer when available', async () => {
@@ -361,17 +321,6 @@ describe('HTTPS Server', () => {
       assert.strictEqual(pollResponse.data.success, true);
       assert.deepStrictEqual(pollResponse.data.payload, serverAnswer);
       assert.strictEqual(pollResponse.data.serverSignature, serverSignature);
-      assert.ok(pollResponse.data.coordinatorSignature);
-      
-      // Verify signature
-      const dataToVerify = {
-        success: pollResponse.data.success,
-        payload: pollResponse.data.payload,
-        serverSignature: pollResponse.data.serverSignature,
-        serverSignatureAlgorithm: pollResponse.data.serverSignatureAlgorithm
-      };
-      const isValid = verifySignature(dataToVerify, pollResponse.data.coordinatorSignature, coordinatorKeys.publicKey);
-      assert.ok(isValid, 'Coordinator signature should be valid');
     });
 
     test('should return 404 for unknown session', async () => {
@@ -396,7 +345,9 @@ describe('HTTPS Server', () => {
 
   describe('CORS headers', () => {
     test('should include CORS headers in responses', async () => {
-      const response = await makeRequest('GET', '/api/coordinator-key', null, testPort);
+      const response = await makeRequest('POST', '/api/servers', {
+        serverPublicKeys: []
+      }, testPort);
       
       assert.ok(response.headers['access-control-allow-origin']);
       assert.ok(response.headers['access-control-allow-methods']);
@@ -417,7 +368,9 @@ describe('HTTPS Server', () => {
       // Make many requests quickly
       const promises = [];
       for (let i = 0; i < 35; i++) {
-        promises.push(makeRequest('GET', '/api/coordinator-key', null, testPort));
+        promises.push(makeRequest('POST', '/api/servers', {
+          serverPublicKeys: []
+        }, testPort));
       }
       
       const responses = await Promise.all(promises);
@@ -529,7 +482,9 @@ describe('HTTPS Server', () => {
         'Expected Invalid JSON to be logged'
       );
 
-      const healthResponse = await makeRequest('GET', '/api/coordinator-key', null, testPort);
+      const healthResponse = await makeRequest('POST', '/api/servers', {
+        serverPublicKeys: []
+      }, testPort);
       assert.strictEqual(healthResponse.status, 200);
     });
   });
@@ -557,11 +512,11 @@ describe('HTTPS Server', () => {
       await testHttpsServer.start();
       
       // Make HTTPS request
-      const response = await makeRequest('GET', '/api/coordinator-key', null, 8449, true);
+      const response = await makeRequest('POST', '/api/servers', {
+        serverPublicKeys: []
+      }, 8449, true);
       
       assert.strictEqual(response.status, 200);
-      assert.ok(response.data.publicKey);
-      assert.ok(response.data.signature);
       
       await testHttpsServer.stop();
       testRegistry.destroy();
@@ -590,7 +545,9 @@ describe('HTTPS Server', () => {
       await testHttpsServer.start();
       
       // Verify we can make HTTPS requests
-      const response = await makeRequest('GET', '/api/coordinator-key', null, 8450, true);
+      const response = await makeRequest('POST', '/api/servers', {
+        serverPublicKeys: []
+      }, 8450, true);
       assert.strictEqual(response.status, 200);
       
       await testHttpsServer.stop();
@@ -612,7 +569,9 @@ describe('HTTPS Server', () => {
       await testHttpsServer.start();
       
       // Verify we can make HTTP requests (not HTTPS)
-      const response = await makeRequest('GET', '/api/coordinator-key', null, 8451, false);
+      const response = await makeRequest('POST', '/api/servers', {
+        serverPublicKeys: []
+      }, 8451, false);
       assert.strictEqual(response.status, 200);
       
       await testHttpsServer.stop();
