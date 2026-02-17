@@ -121,7 +121,7 @@ Encrypted with key derived from X25519/X448 shared secret
 
 JSON payload:
 {
-  serverPublicKey: 'pem-key',
+  serverPublicKey: 'base64-public-key',
   timestamp: 1234567890,
   payload: {
     challenge: 'hex-string',
@@ -159,7 +159,7 @@ After registration, expectedAnswer becomes the shared secret for all future comm
 ```javascript
 {
   type: 'answer',
-  serverPublicKey: '...',
+  serverPublicKey: 'base64-public-key',
   sessionId: '...',
   timestamp: Date.now(),
   payload: {

@@ -145,7 +145,7 @@ Binary: [0x01][0x05][AES-GCM Encrypted Payload]
 Encrypted JSON payload:
 ```javascript
 {
-  serverPublicKey: 'pem-key',
+  serverPublicKey: 'base64-public-key',
   timestamp: 1234567890,
   payload: {
     challenge: 'hex-string',
@@ -283,7 +283,7 @@ POST /api/servers
 
 Request:
 {
-  serverPublicKeys: ['key1-hash', 'key2-hash']
+  serverPublicKeys: ['base64-public-key-1', 'base64-public-key-2']
 }
 
 Response:
@@ -308,7 +308,7 @@ POST /api/connect
 
 Request:
 {
-  serverPublicKey: 'target-server-public-key-hash',
+  serverPublicKey: 'base64-public-key',
   challengeAnswer: 'hash-of-challenge-plus-password',
   payload: {
     sdp: { type: 'offer', sdp: '...' },

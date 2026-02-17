@@ -109,6 +109,19 @@ function normalizeSignatureAlgorithm(algorithm) {
   }
 
   /**
+   * Normalize a PEM or base64 public key to base64 for network requests
+   */
+  function normalizePublicKeyBase64(key) {
+    if (key.includes('-----BEGIN PUBLIC KEY-----')) {
+      return key
+        .replace('-----BEGIN PUBLIC KEY-----', '')
+        .replace('-----END PUBLIC KEY-----', '')
+        .replace(/\s/g, '');
+    }
+    return key.replace(/\s/g, '');
+  }
+
+  /**
    * Hash challenge answer (browser version)
    */
   async function hashChallengeAnswer(challenge, password) {
@@ -211,9 +224,11 @@ class Client {
         // Create and setup iframe
         await this.createIframe();
         
+        const serverPublicKeyBase64 = normalizePublicKeyBase64(serverPublicKey);
+
         // Get server challenge
         const serverInfo = await this.iframeRequest('getServerInfo', {
-          serverPublicKey
+          serverPublicKey: serverPublicKeyBase64
         });
         
         if (!serverInfo.online) {
@@ -236,7 +251,7 @@ class Client {
         
         // Send connection request with offer and candidates
         const connectResponse = await this.iframeRequest('connect', {
-          serverPublicKey,
+          serverPublicKey: serverPublicKeyBase64,
           challengeAnswer,
           payload: {
             sdp: offer,

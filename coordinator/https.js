@@ -1,8 +1,6 @@
 import http from 'http';
 import https from 'https';
 import crypto from 'crypto';
-import fs from 'fs';
-import { hashChallengeAnswer, unwrapPublicKey } from '../shared/crypto.js';
 
 /**
  * HTTPS server for client-coordinator communication
@@ -31,27 +29,7 @@ export class HTTPSServer {
     this.sessionTimeout = options.sessionTimeout || 60000;
     
     // TLS mode detection: use HTTPS if cert and key are provided
-    this.useTLS = !!(options.certPath && options.keyPath) || !!(options.cert && options.key);
-  }
-
-  /**
-   * Load TLS certificates from files
-   */
-  loadTLSCertificates() {
-    const certPath = this.options.certPath;
-    const keyPath = this.options.keyPath;
-    
-    if (!fs.existsSync(certPath)) {
-      throw new Error(`TLS certificate not found: ${certPath}`);
-    }
-    if (!fs.existsSync(keyPath)) {
-      throw new Error(`TLS private key not found: ${keyPath}`);
-    }
-    
-    return {
-      cert: fs.readFileSync(certPath, 'utf8'),
-      key: fs.readFileSync(keyPath, 'utf8')
-    };
+    this.useTLS = !!(options.cert && options.key);
   }
 
   // Note: Self-signed certificate generation is handled by shared/tls.js
@@ -75,16 +53,10 @@ export class HTTPSServer {
         // HTTPS mode with TLS
         let tlsOptions;
         
-        if (this.options.cert && this.options.key) {
-          // Certificates provided directly (e.g., for testing)
-          tlsOptions = {
-            cert: this.options.cert,
-            key: this.options.key
-          };
-        } else {
-          // Load certificates from files
-          tlsOptions = this.loadTLSCertificates();
-        }
+        tlsOptions = {
+          cert: this.options.cert,
+          key: this.options.key
+        };
         
         this.server = https.createServer(tlsOptions, requestHandler);
         
@@ -271,17 +243,15 @@ export class HTTPSServer {
       
       const servers = [];
       
-      for (const keyPem of serverPublicKeys) {
-        // Convert PEM to base64 for registry lookup
-        const keyBase64 = unwrapPublicKey(keyPem);
-        const server = this.registry.getServerByPublicKey(keyBase64);
+      for (const serverPublicKeyBase64 of serverPublicKeys) {
+        const server = this.registry.getServerByPublicKey(serverPublicKeyBase64);
         if (server) {
           const now = Date.now();
           const isOnline = (now - server.timestamp) < 60000; // Online if seen in last 60s
           
           servers.push({
-            publicKeyHash: keyBase64,
-            name: keyBase64.substring(0, 16) + '...', // Truncated hash as name
+            publicKeyHash: serverPublicKeyBase64,
+            name: serverPublicKeyBase64.substring(0, 16) + '...', // Truncated hash as name
             online: isOnline,
             challenge: server.challenge
           });
@@ -302,10 +272,10 @@ export class HTTPSServer {
   async handleConnect(req, res) {
     try {
       const body = await this.readBody(req);
-      const { serverPublicKey: serverPublicKeyPem, challengeAnswer, payload, timestamp } = body;
+      const { serverPublicKey: serverPublicKeyBase64, challengeAnswer, payload, timestamp } = body;
       
       // Validate input
-      if (!serverPublicKeyPem || !challengeAnswer || !payload) {
+      if (!serverPublicKeyBase64 || !challengeAnswer || !payload) {
         this.sendError(res, 400, 'Missing required fields');
         return;
       }
@@ -321,18 +291,15 @@ export class HTTPSServer {
         return;
       }
       
-      // Convert PEM to base64 for registry lookup
-      const serverPublicKey = unwrapPublicKey(serverPublicKeyPem);
-      
       // Get server info
-      const server = this.registry.getServerByPublicKey(serverPublicKey);
+      const server = this.registry.getServerByPublicKey(serverPublicKeyBase64);
       if (!server) {
         this.sendError(res, 404, 'Server not found');
         return;
       }
       
       // Verify challenge answer
-      if (!this.registry.verifyChallenge(serverPublicKey, challengeAnswer)) {
+      if (!this.registry.verifyChallenge(serverPublicKeyBase64, challengeAnswer)) {
         this.sendError(res, 403, 'Invalid challenge answer');
         return;
       }
@@ -344,7 +311,7 @@ export class HTTPSServer {
       this.sessions.set(sessionId, {
         clientOffer: payload,
         timestamp: Date.now(),
-        serverPublicKey,
+        serverPublicKey: serverPublicKeyBase64,
         answer: null
       });
       

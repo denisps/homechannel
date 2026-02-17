@@ -1,7 +1,7 @@
 import fs from 'fs';
 import { ServerRegistry } from './registry.js';
 import { UDPServer } from '../shared/protocol.js';
-import { loadKeys, generateSigningKeyPair, saveKeys, normalizeSignatureAlgorithm } from '../shared/keys.js';
+import { loadKeys, generateSigningKeyPair, saveKeys, normalizeSignatureAlgorithm, loadTLSCertificates } from '../shared/keys.js';
 import { normalizeKeyAgreementCurve } from '../shared/crypto.js';
 import { HTTPSServer } from './https.js';
 
@@ -20,6 +20,11 @@ class Coordinator {
   }
 
   async init() {
+    const keyLoadPromise = loadKeys(this.config.privateKeyPath, this.config.publicKeyPath);
+    const tlsLoadPromise = (this.config.https?.certPath && this.config.https?.keyPath)
+      ? loadTLSCertificates(this.config.https.certPath, this.config.https.keyPath)
+      : Promise.resolve({});
+
     const signatureAlgorithm = normalizeSignatureAlgorithm(this.config.crypto?.signatureAlgorithm) || 'ed448';
     const keyAgreementCurve = normalizeKeyAgreementCurve(this.config.crypto?.keyAgreementCurve) || 'x448';
 
@@ -28,21 +33,31 @@ class Coordinator {
 
     // Load or generate coordinator keys
     try {
-      this.coordinatorKeys = loadKeys(this.config.privateKeyPath, this.config.publicKeyPath);
+      this.coordinatorKeys = await keyLoadPromise;
       
       if (this.coordinatorKeys) {
         if (
           this.coordinatorKeys.signatureAlgorithm &&
           this.coordinatorKeys.signatureAlgorithm !== signatureAlgorithm
         ) {
-          throw new Error(
+          console.warn(
             `Coordinator keys are ${this.coordinatorKeys.signatureAlgorithm}, expected ${signatureAlgorithm}. ` +
-            'Regenerate keys or update crypto.signatureAlgorithm.'
+            'Regenerating keys with the configured algorithm.'
           );
+          this.coordinatorKeys = null;
         }
-        this.coordinatorKeys.signatureAlgorithm = signatureAlgorithm;
-        console.log('Loaded coordinator keys');
+        if (this.coordinatorKeys) {
+          this.coordinatorKeys.signatureAlgorithm = signatureAlgorithm;
+          console.log('Loaded coordinator keys');
+        }
       } else {
+        console.log('Generating new coordinator keys...');
+        this.coordinatorKeys = generateSigningKeyPair(signatureAlgorithm);
+        saveKeys(this.config.privateKeyPath, this.config.publicKeyPath, this.coordinatorKeys);
+        console.log('Coordinator keys generated and saved');
+      }
+
+      if (!this.coordinatorKeys) {
         console.log('Generating new coordinator keys...');
         this.coordinatorKeys = generateSigningKeyPair(signatureAlgorithm);
         saveKeys(this.config.privateKeyPath, this.config.publicKeyPath, this.coordinatorKeys);
@@ -66,12 +81,13 @@ class Coordinator {
       signatureAlgorithm
     });
 
+    const tlsOptions = await tlsLoadPromise;
+
     // Initialize HTTPS server with TLS config from config file
     this.httpsServer = new HTTPSServer(this.registry, this.coordinatorKeys, this.udpServer, {
       port: this.config.https.port,
       host: this.config.https.host,
-      certPath: this.config.https.certPath,
-      keyPath: this.config.https.keyPath,
+      ...tlsOptions,
       signatureAlgorithm
     });
 

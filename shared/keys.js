@@ -54,13 +54,24 @@ export function generateSigningKeyPair(signatureAlgorithm = 'ed448') {
  * Load Ed25519/Ed448 keys from files
  * Returns null if files don't exist, throws on read errors
  */
-export function loadKeys(privateKeyPath, publicKeyPath) {
+export async function loadKeys(privateKeyPath, publicKeyPath) {
   try {
-    if (!fs.existsSync(privateKeyPath) || !fs.existsSync(publicKeyPath)) {
+    await Promise.all([
+      fs.promises.access(privateKeyPath),
+      fs.promises.access(publicKeyPath)
+    ]);
+  } catch (error) {
+    if (error.code === 'ENOENT') {
       return null;
     }
-    const privateKey = fs.readFileSync(privateKeyPath, 'utf8');
-    const publicKey = fs.readFileSync(publicKeyPath, 'utf8');
+    throw new Error(`Failed to load keys: ${error.message}`);
+  }
+
+  try {
+    const [privateKey, publicKey] = await Promise.all([
+      fs.promises.readFile(privateKeyPath, 'utf8'),
+      fs.promises.readFile(publicKeyPath, 'utf8')
+    ]);
     return {
       privateKey,
       publicKey,
@@ -85,6 +96,26 @@ export function saveKeys(privateKeyPath, publicKeyPath, keys) {
   // Save keys with proper permissions (600 for private key)
   fs.writeFileSync(privateKeyPath, keys.privateKey, { mode: 0o600 });
   fs.writeFileSync(publicKeyPath, keys.publicKey);
+}
+
+/**
+ * Load TLS certificates from files
+ */
+export async function loadTLSCertificates(certPath, keyPath) {
+  if (!certPath || !keyPath) {
+    throw new Error('TLS certificate and key paths are required');
+  }
+
+  try {
+    const [cert, key] = await Promise.all([
+      fs.promises.readFile(certPath, 'utf8'),
+      fs.promises.readFile(keyPath, 'utf8')
+    ]);
+
+    return { cert, key };
+  } catch (error) {
+    throw new Error(`Failed to load TLS certificates: ${error.message}`);
+  }
 }
 
 

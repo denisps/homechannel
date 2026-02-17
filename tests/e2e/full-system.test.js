@@ -16,6 +16,7 @@ import https from 'https';
 import http from 'http';
 import { fileURLToPath } from 'url';
 import { isOpenSSLAvailable, generateSelfSignedCertificate } from '../../shared/tls.js';
+import { unwrapPublicKey } from '../../shared/crypto.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -246,10 +247,11 @@ describe('E2E: Coordinator and Server Integration', () => {
     // Read server's public key to verify it's still registered
     const serverPubKeyPath = path.join(testConfigDir, 'server_public.pem');
     serverPublicKey = await fs.readFile(serverPubKeyPath, 'utf8');
+    const serverPublicKeyBase64 = unwrapPublicKey(serverPublicKey);
     
     // Verify server is currently registered via HTTP API
     const initialResponse = await makeRequest('POST', '/api/servers', {
-      serverPublicKeys: [serverPublicKey],
+      serverPublicKeys: [serverPublicKeyBase64],
       timestamp: Date.now()
     });
     
@@ -268,7 +270,7 @@ describe('E2E: Coordinator and Server Integration', () => {
     
     // Verify server is STILL registered via HTTP API (proves keepalive is working)
     const afterResponse = await makeRequest('POST', '/api/servers', {
-      serverPublicKeys: [serverPublicKey],
+      serverPublicKeys: [serverPublicKeyBase64],
       timestamp: Date.now()
     });
     

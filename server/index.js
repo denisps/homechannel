@@ -23,6 +23,8 @@ class Server {
   }
 
   async init() {
+    const keyLoadPromise = loadKeys(this.config.privateKeyPath, this.config.publicKeyPath);
+
     // Display WebRTC library status
     await displayWebRTCStatus();
 
@@ -34,18 +36,28 @@ class Server {
 
     // Load or generate server keys
     try {
-      this.serverKeys = loadKeys(this.config.privateKeyPath, this.config.publicKeyPath);
+      this.serverKeys = await keyLoadPromise;
       
       if (this.serverKeys) {
         if (this.serverKeys.signatureAlgorithm && this.serverKeys.signatureAlgorithm !== signatureAlgorithm) {
-          throw new Error(
+          console.warn(
             `Server keys are ${this.serverKeys.signatureAlgorithm}, expected ${signatureAlgorithm}. ` +
-            'Regenerate keys or update crypto.signatureAlgorithm.'
+            'Regenerating keys with the configured algorithm.'
           );
+          this.serverKeys = null;
         }
-        this.serverKeys.signatureAlgorithm = signatureAlgorithm;
-        console.log('Loaded server keys');
+        if (this.serverKeys) {
+          this.serverKeys.signatureAlgorithm = signatureAlgorithm;
+          console.log('Loaded server keys');
+        }
       } else {
+        console.log('Generating new server keys...');
+        this.serverKeys = generateSigningKeyPair(signatureAlgorithm);
+        saveKeys(this.config.privateKeyPath, this.config.publicKeyPath, this.serverKeys);
+        console.log('Server keys generated and saved');
+      }
+
+      if (!this.serverKeys) {
         console.log('Generating new server keys...');
         this.serverKeys = generateSigningKeyPair(signatureAlgorithm);
         saveKeys(this.config.privateKeyPath, this.config.publicKeyPath, this.serverKeys);

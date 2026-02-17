@@ -91,7 +91,7 @@ describe('Client-Coordinator HTTPS Integration', () => {
     registry.register(serverKeyBase64, serverIpPort, challenge, expectedAnswer);
     
     const response = await makeRequest('POST', '/api/servers', {
-      serverPublicKeys: [serverKeys.publicKey], // Send PEM (will be unwrapped by server)
+      serverPublicKeys: [serverKeyBase64],
       timestamp: Date.now()
     });
     
@@ -118,7 +118,7 @@ describe('Client-Coordinator HTTPS Integration', () => {
     
     // Use the same expectedAnswer as the challenge answer (hashed password)
     const response = await makeRequest('POST', '/api/connect', {
-      serverPublicKey: serverKeys.publicKey,
+      serverPublicKey: serverKeyBase64,
       challengeAnswer: expectedAnswer,
       payload: {
         sdp: 'v=0\r\no=- 1234 1234 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\n',
@@ -147,7 +147,7 @@ describe('Client-Coordinator HTTPS Integration', () => {
     const wrongAnswer = hashChallengeAnswer(challenge, 'wrong-password');
     
     const response = await makeRequest('POST', '/api/connect', {
-      serverPublicKey: serverKeys.publicKey,
+      serverPublicKey: serverKeyBase64,
       challengeAnswer: wrongAnswer,
       payload: {
         sdp: 'v=0\r\no=- 1234 1234 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\n',
@@ -174,7 +174,7 @@ describe('Client-Coordinator HTTPS Integration', () => {
     
     // Create connection
     const connectResponse = await makeRequest('POST', '/api/connect', {
-      serverPublicKey: serverKeys.publicKey,
+      serverPublicKey: serverKeyBase64,
       challengeAnswer: expectedAnswer,
       payload: {
         sdp: 'v=0\r\no=- 1234 1234 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\n',
