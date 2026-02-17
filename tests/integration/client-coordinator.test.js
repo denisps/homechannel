@@ -39,7 +39,9 @@ describe('Client-Coordinator HTTPS Integration', () => {
     let serverOptions = {
       port: 0, // Random port
       sessionTimeout: 60000,
-      relayOffer
+      relayOffer,
+      getServerByPublicKey: (publicKey) => registry.getServerByPublicKey(publicKey),
+      verifyChallenge: (publicKey, answer) => registry.verifyChallenge(publicKey, answer)
     };
     
     if (isOpenSSLAvailable()) {
@@ -50,11 +52,7 @@ describe('Client-Coordinator HTTPS Integration', () => {
     }
     
     // Start real HTTPS server
-    httpsServerInstance = new HTTPSServer(
-      registry,
-      coordinatorKeys,
-      serverOptions
-    );
+    httpsServerInstance = new HTTPSServer(serverOptions);
     
     await httpsServerInstance.start();
     httpsPort = httpsServerInstance.server.address().port;

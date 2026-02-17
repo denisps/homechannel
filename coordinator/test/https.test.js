@@ -87,10 +87,12 @@ describe('HTTPS Server', () => {
     relayOffer = async () => Promise.resolve();
     
     // Start in HTTP mode for basic tests (no TLS cert/key provided)
-    httpsServer = new HTTPSServer(registry, coordinatorKeys, {
+    httpsServer = new HTTPSServer({
       port: testPort,
       host: 'localhost',
-      relayOffer
+      relayOffer,
+      getServerByPublicKey: (publicKey) => registry.getServerByPublicKey(publicKey),
+      verifyChallenge: (publicKey, answer) => registry.verifyChallenge(publicKey, answer)
     });
     
     await httpsServer.start();
@@ -379,10 +381,12 @@ describe('HTTPS Server', () => {
     test('should cleanup expired sessions', async (t) => {
       // Create HTTPS server with short timeout for testing
       const testRegistry = new ServerRegistry();
-      const testHttpsServer = new HTTPSServer(testRegistry, coordinatorKeys, {
+      const testHttpsServer = new HTTPSServer({
         port: 8445,
         host: 'localhost',
         relayOffer,
+        getServerByPublicKey: (publicKey) => testRegistry.getServerByPublicKey(publicKey),
+        verifyChallenge: (publicKey, answer) => testRegistry.verifyChallenge(publicKey, answer),
         sessionTimeout: 100 // 100ms timeout
       });
       
@@ -495,12 +499,14 @@ describe('HTTPS Server', () => {
       // Generate self-signed certificate for testing
       const { cert, key } = generateSelfSignedCertificate({ commonName: 'localhost' });
       
-      const testHttpsServer = new HTTPSServer(testRegistry, coordinatorKeys, {
+      const testHttpsServer = new HTTPSServer({
         port: 8449,
         host: 'localhost',
         cert,
         key,
-        relayOffer
+        relayOffer,
+        getServerByPublicKey: (publicKey) => testRegistry.getServerByPublicKey(publicKey),
+        verifyChallenge: (publicKey, answer) => testRegistry.verifyChallenge(publicKey, answer)
       });
       
       await testHttpsServer.start();
@@ -526,12 +532,14 @@ describe('HTTPS Server', () => {
       const testRegistry = new ServerRegistry();
       const { cert, key } = generateSelfSignedCertificate({ commonName: 'localhost' });
       
-      const testHttpsServer = new HTTPSServer(testRegistry, coordinatorKeys, {
+      const testHttpsServer = new HTTPSServer({
         port: 8450,
         host: 'localhost',
         cert,
         key,
-        relayOffer
+        relayOffer,
+        getServerByPublicKey: (publicKey) => testRegistry.getServerByPublicKey(publicKey),
+        verifyChallenge: (publicKey, answer) => testRegistry.verifyChallenge(publicKey, answer)
       });
       
       // Verify it detects TLS mode
@@ -552,10 +560,12 @@ describe('HTTPS Server', () => {
     test('should fall back to HTTP when no TLS credentials provided', async () => {
       const testRegistry = new ServerRegistry();
       
-      const testHttpsServer = new HTTPSServer(testRegistry, coordinatorKeys, {
+      const testHttpsServer = new HTTPSServer({
         port: 8451,
         host: 'localhost',
-        relayOffer
+        relayOffer,
+        getServerByPublicKey: (publicKey) => testRegistry.getServerByPublicKey(publicKey),
+        verifyChallenge: (publicKey, answer) => testRegistry.verifyChallenge(publicKey, answer)
         // No cert or key provided
       });
       

@@ -10,13 +10,19 @@ import crypto from 'crypto';
  * HTTPS is required for production as Web Crypto API only works on secure origins.
  */
 export class HTTPSServer {
-  constructor(registry, coordinatorKeys, options = {}) {
-    this.registry = registry;
-    this.coordinatorKeys = coordinatorKeys;
+  constructor(options = {}) {
     this.options = options;
     this.relayOffer = options.relayOffer || null;
+    this.getServerByPublicKey = options.getServerByPublicKey || null;
+    this.verifyChallenge = options.verifyChallenge || null;
     if (typeof this.relayOffer !== 'function') {
       throw new Error('relayOffer must be a function');
+    }
+    if (typeof this.getServerByPublicKey !== 'function') {
+      throw new Error('getServerByPublicKey must be a function');
+    }
+    if (typeof this.verifyChallenge !== 'function') {
+      throw new Error('verifyChallenge must be a function');
     }
     
     this.server = null;
@@ -247,7 +253,7 @@ export class HTTPSServer {
       const servers = [];
       
       for (const serverPublicKeyBase64 of serverPublicKeys) {
-        const server = this.registry.getServerByPublicKey(serverPublicKeyBase64);
+        const server = this.getServerByPublicKey(serverPublicKeyBase64);
         if (server) {
           const now = Date.now();
           const isOnline = (now - server.timestamp) < 60000; // Online if seen in last 60s
@@ -295,14 +301,14 @@ export class HTTPSServer {
       }
       
       // Get server info
-      const server = this.registry.getServerByPublicKey(serverPublicKeyBase64);
+      const server = this.getServerByPublicKey(serverPublicKeyBase64);
       if (!server) {
         this.sendError(res, 404, 'Server not found');
         return;
       }
       
       // Verify challenge answer
-      if (!this.registry.verifyChallenge(serverPublicKeyBase64, challengeAnswer)) {
+      if (!this.verifyChallenge(serverPublicKeyBase64, challengeAnswer)) {
         this.sendError(res, 403, 'Invalid challenge answer');
         return;
       }

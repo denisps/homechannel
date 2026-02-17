@@ -84,14 +84,16 @@ class Coordinator {
     const tlsOptions = await tlsLoadPromise;
 
     // Initialize HTTPS server with TLS config from config file
-    this.httpsServer = new HTTPSServer(this.registry, this.coordinatorKeys, {
+    this.httpsServer = new HTTPSServer({
       port: this.config.https.port,
       host: this.config.https.host,
       ...tlsOptions,
       signatureAlgorithm,
       relayOffer: async ({ ipPort, sessionId, payload }) => {
         await this.udpServer.sendOfferToServer(ipPort, sessionId, payload);
-      }
+      },
+      getServerByPublicKey: (publicKey) => this.registry.getServerByPublicKey(publicKey),
+      verifyChallenge: (publicKey, answer) => this.registry.verifyChallenge(publicKey, answer)
     });
 
     // Register answer handler to relay to HTTPS clients
