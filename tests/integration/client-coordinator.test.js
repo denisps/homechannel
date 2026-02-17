@@ -22,7 +22,7 @@ describe('Client-Coordinator HTTPS Integration', () => {
   let httpsPort;
   let registry;
   let coordinatorKeys;
-  let udpServer;
+  let relayOffer;
   let makeRequest;
   let useTLS = false;
 
@@ -33,18 +33,13 @@ describe('Client-Coordinator HTTPS Integration', () => {
     registry = new ServerRegistry();
     coordinatorKeys = generateSigningKeyPair();
     
-    // Create a mock UDP server for the HTTPS server
-    udpServer = {
-      sendOfferToServer: async () => {
-        // Mock implementation - doesn't actually send
-        return true;
-      }
-    };
+    relayOffer = async () => true;
     
     // Try to use HTTPS with TLS if OpenSSL is available
     let serverOptions = {
       port: 0, // Random port
-      sessionTimeout: 60000
+      sessionTimeout: 60000,
+      relayOffer
     };
     
     if (isOpenSSLAvailable()) {
@@ -58,7 +53,6 @@ describe('Client-Coordinator HTTPS Integration', () => {
     httpsServerInstance = new HTTPSServer(
       registry,
       coordinatorKeys,
-      udpServer,
       serverOptions
     );
     

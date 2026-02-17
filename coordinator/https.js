@@ -10,11 +10,14 @@ import crypto from 'crypto';
  * HTTPS is required for production as Web Crypto API only works on secure origins.
  */
 export class HTTPSServer {
-  constructor(registry, coordinatorKeys, udpServer, options = {}) {
+  constructor(registry, coordinatorKeys, options = {}) {
     this.registry = registry;
     this.coordinatorKeys = coordinatorKeys;
-    this.udpServer = udpServer;
     this.options = options;
+    this.relayOffer = options.relayOffer || null;
+    if (typeof this.relayOffer !== 'function') {
+      throw new Error('relayOffer must be a function');
+    }
     
     this.server = null;
     this.sessions = new Map(); // sessionId -> {clientOffer, timestamp, answer}
@@ -315,9 +318,14 @@ export class HTTPSServer {
         answer: null
       });
       
-      // Relay offer to server via UDP
+      // Relay offer to server via higher-level component
       try {
-        await this.udpServer.sendOfferToServer(server.ipPort, sessionId, payload);
+        await this.relayOffer({
+          ipPort: server.ipPort,
+          sessionId,
+          payload,
+          serverPublicKey: serverPublicKeyBase64
+        });
       } catch (err) {
         console.error('Error sending offer to server:', err);
         this.sessions.delete(sessionId);

@@ -76,7 +76,7 @@ describe('HTTPS Server', () => {
   let registry;
   let coordinatorKeys;
   let httpsServer;
-  let mockUdpServer;
+  let relayOffer;
   let testPort = 8444; // Use different port for tests
 
   before(async () => {
@@ -84,21 +84,13 @@ describe('HTTPS Server', () => {
     registry = new ServerRegistry();
     coordinatorKeys = generateSigningKeyPair();
     
-    // Create mock UDP server with sendOfferToServer method
-    mockUdpServer = {
-      sendOfferToServer: async (ipPort, sessionId, payload) => {
-        // Mock implementation
-        return Promise.resolve();
-      },
-      on: (type, handler) => {
-        // Mock implementation
-      }
-    };
+    relayOffer = async () => Promise.resolve();
     
     // Start in HTTP mode for basic tests (no TLS cert/key provided)
-    httpsServer = new HTTPSServer(registry, coordinatorKeys, mockUdpServer, {
+    httpsServer = new HTTPSServer(registry, coordinatorKeys, {
       port: testPort,
-      host: 'localhost'
+      host: 'localhost',
+      relayOffer
     });
     
     await httpsServer.start();
@@ -387,9 +379,10 @@ describe('HTTPS Server', () => {
     test('should cleanup expired sessions', async (t) => {
       // Create HTTPS server with short timeout for testing
       const testRegistry = new ServerRegistry();
-      const testHttpsServer = new HTTPSServer(testRegistry, coordinatorKeys, mockUdpServer, {
+      const testHttpsServer = new HTTPSServer(testRegistry, coordinatorKeys, {
         port: 8445,
         host: 'localhost',
+        relayOffer,
         sessionTimeout: 100 // 100ms timeout
       });
       
@@ -502,11 +495,12 @@ describe('HTTPS Server', () => {
       // Generate self-signed certificate for testing
       const { cert, key } = generateSelfSignedCertificate({ commonName: 'localhost' });
       
-      const testHttpsServer = new HTTPSServer(testRegistry, coordinatorKeys, mockUdpServer, {
+      const testHttpsServer = new HTTPSServer(testRegistry, coordinatorKeys, {
         port: 8449,
         host: 'localhost',
         cert,
-        key
+        key,
+        relayOffer
       });
       
       await testHttpsServer.start();
@@ -532,11 +526,12 @@ describe('HTTPS Server', () => {
       const testRegistry = new ServerRegistry();
       const { cert, key } = generateSelfSignedCertificate({ commonName: 'localhost' });
       
-      const testHttpsServer = new HTTPSServer(testRegistry, coordinatorKeys, mockUdpServer, {
+      const testHttpsServer = new HTTPSServer(testRegistry, coordinatorKeys, {
         port: 8450,
         host: 'localhost',
         cert,
-        key
+        key,
+        relayOffer
       });
       
       // Verify it detects TLS mode
@@ -557,9 +552,10 @@ describe('HTTPS Server', () => {
     test('should fall back to HTTP when no TLS credentials provided', async () => {
       const testRegistry = new ServerRegistry();
       
-      const testHttpsServer = new HTTPSServer(testRegistry, coordinatorKeys, mockUdpServer, {
+      const testHttpsServer = new HTTPSServer(testRegistry, coordinatorKeys, {
         port: 8451,
-        host: 'localhost'
+        host: 'localhost',
+        relayOffer
         // No cert or key provided
       });
       
