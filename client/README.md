@@ -10,6 +10,8 @@ Browser-compatible JavaScript client for establishing secure WebRTC datachannel 
 - **Self-contained iframe**: Isolated coordinator communication
 - **Event-driven**: Simple event API for connection lifecycle
 - **Minimal dependencies**: No external libraries
+- **App delivery**: Apps fetched from server over datachannels
+- **Auditable**: Downloadable `index.html` + `client.js`
 
 ## Usage
 
@@ -29,7 +31,7 @@ The client works from the local filesystem using a script tag:
   <div id="status"></div>
   <div id="messages"></div>
   
-  <script src="apps/client.js"></script>
+  <script src="client.js"></script>
   <script>
     const { Client } = window.HomeChannelClient;
     
@@ -85,7 +87,7 @@ MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE...
 The same file works as an ES module:
 
 ```javascript
-import { Client } from './apps/client.js';
+import { Client } from './client.js';
 
 const client = new Client('https://coordinator.example.com');
 // ... rest of the code
@@ -146,7 +148,9 @@ Register event handler.
 7. **Verify signature**: Validate server's Ed25519/Ed448 signature on answer
 8. **Establish datachannel**: Set remote description and add ICE candidates
 9. **Delete iframe**: Remove iframe after datachannel opens
-10. **Ready**: Connection established, can send/receive messages
+10. **List apps**: Request app list on `apps-control` channel
+11. **Load apps**: Open per-app channels and fetch ES module bundles
+12. **Ready**: Connection established, apps available
 
 ## Security
 
@@ -154,15 +158,16 @@ Register event handler.
 - Challenge-response prevents unauthorized access
 - Iframe isolation sandboxes coordinator communication
 - Only trusted server public keys should be used
+- Server public keys can be embedded in `index.html`, entered manually, or saved in localStorage
 - Passwords are never transmitted (only the hash)
 
 ## Files
 
-- `apps/client.js` - Universal module (works as ES module or script tag)
-- `apps/filebrowser.html` - Example file browser app
+- `index.html` - Minimal client shell
+- `client.js` - Universal module (works as ES module or script tag)
 - `iframe.html` - Coordinator iframe (self-contained)
 - `test/client.test.js` - Comprehensive test suite
-- `test/filebrowser.test.js` - Filebrowser app tests
+- `test/filebrowser.test.js` - File app tests (to be migrated)
 
 ## Testing
 

@@ -1,6 +1,6 @@
 # File Service API
 
-The File Service provides secure file operations over WebRTC datachannel for HomeChannel clients.
+The File Service is delivered as an app module over WebRTC datachannel for HomeChannel clients. The app uses the `files` channel label.
 
 ## Configuration
 
@@ -8,7 +8,8 @@ Add to `server/config.json`:
 
 ```json
 {
-  "services": {
+  "apps": ["files"],
+  "appsConfig": {
     "files": {
       "enabled": true,
       "rootDir": "/home/user",
@@ -395,11 +396,10 @@ dataChannel.addEventListener('message', (event) => {
 
 ### Files
 
-- `server/services/files.js` - File service implementation
-- `server/services/index.js` - Service router
+- `server/apps/files/` - File app module bundle
 - `server/webrtc.js` - WebRTC peer with datachannel message handling
 - `server/index.js` - Server integration
-- `server/test/services.test.js` - Comprehensive tests
+- `server/test/services.test.js` - Comprehensive tests (migration in progress)
 
 ### Testing
 

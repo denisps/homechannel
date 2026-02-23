@@ -272,6 +272,63 @@ Binary: [0x01][0xFF]
 
 **Purpose**: Notifies client of rate limiting or temporary ban. Client should back off and retry later. No payload needed - message type alone conveys the error.
 
+## WebRTC Datachannel (Client ↔ Server)
+
+Apps are delivered directly over WebRTC datachannels after the peer connection is established.
+
+### Channel Labels
+
+- `apps-control` (reserved): Control channel for app discovery and metadata.
+- `<app-name>`: Per-app channel. The channel label matches the app name from server config.
+
+### Control Channel Messages (JSON)
+
+**List Request**:
+```json
+{
+  "type": "apps:list",
+  "requestId": "req-1"
+}
+```
+
+**List Response**:
+```json
+{
+  "type": "apps:list:response",
+  "requestId": "req-1",
+  "apps": [
+    {
+      "name": "files",
+      "version": "1.0.0",
+      "size": 12345,
+      "format": "es-module",
+      "entry": "index.js"
+    }
+  ]
+}
+```
+
+### App Channel Payload
+
+When the client opens a per-app datachannel, the server sends:
+
+1. A JSON header message:
+```json
+{
+  "type": "app:bundle",
+  "name": "files",
+  "format": "es-module",
+  "size": 12345,
+  "entry": "index.js"
+}
+```
+
+2. A single binary message containing the ES module bundle.
+
+**Notes**:
+- App payloads are trusted from the server (no additional integrity layer).
+- Large bundles may require a future chunking protocol.
+
 ## HTTPS Protocol (Client ↔ Coordinator)
 
 Client connects via standard HTTPS polling (no WebSockets).

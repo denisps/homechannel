@@ -35,6 +35,15 @@ Edit `config.json`:
   "port": 0,
   "webrtc": {
     "library": "werift"
+  },
+  "apps": ["files"],
+  "appsConfig": {
+    "files": {
+      "enabled": true,
+      "rootDir": "/home/user",
+      "allowedDirs": ["/home/user", "/home/user/documents"],
+      "maxFileSize": 104857600
+    }
   }
 }
 ```
@@ -125,11 +134,11 @@ npm run test:all
 
 Runs both standard tests and WebRTC connectivity tests.
 
-## Services
+## Apps
 
-The server provides these services through WebRTC datachannel:
+The server provides apps through WebRTC datachannels. Each app runs on its own channel and is delivered as an ES module bundle.
 
-### File Service
+### File App
 
 Access files on your home network:
 - `listDirectory` - List files and folders
@@ -144,12 +153,13 @@ See [FILE_SERVICE.md](FILE_SERVICE.md) for detailed API documentation.
 
 ### Configuration
 
-Configure services in `config.json`:
+Configure apps in `config.json`:
 
 ```json
 {
-  "services": {
-    "file": {
+  "apps": ["files"],
+  "appsConfig": {
+    "files": {
       "enabled": true,
       "allowedDirectories": ["/home/user/Documents", "/var/www"],
       "maxFileSize": 10485760
@@ -168,9 +178,9 @@ server/
 ├── webrtc.js             # WebRTC abstraction layer
 ├── config.json           # Server configuration
 ├── package.json          # Dependencies and scripts
-├── services/             # Service implementations
-│   ├── index.js          # Service router
-│   └── file.js           # File service
+├── apps/                 # App implementations
+│   └── files/            # File app module
+├── services/             # Legacy services (to be migrated)
 ├── test/                 # Test suite
 │   ├── server.test.js    # Server UDP tests
 │   ├── migration.test.js # Coordinator migration tests
@@ -181,12 +191,12 @@ server/
 └── keys/                 # Ed25519/Ed448 keypair (generated on first run)
 ```
 
-### Adding Services
+### Adding Apps
 
-1. Create service implementation in `services/your-service.js`
-2. Export service class with `handleMessage(message)` method
-3. Register in `services/index.js`
-4. Add service configuration to `config.json`
+1. Create app module in `apps/your-app/`
+2. Export an async entry point (e.g. `async run(context)`)
+3. Add app name to `apps` in `config.json`
+4. Add app settings under `appsConfig.your-app`
 5. Add tests
 
 ## Troubleshooting

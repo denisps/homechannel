@@ -64,7 +64,7 @@ npm test  # Verify installation
 node index.js
 
 # Access client
-# Open client/apps/filebrowser.html in your browser
+# Open client/index.html in your browser
 ```
 
 ### Example Usage
@@ -84,12 +84,13 @@ node index.js
 # Server registers with coordinator and waits for connections
 ```
 
-**3. Connect with File Browser (Browser)**
-- Open `client/apps/filebrowser.html` in your browser
+**3. Connect with Browser**
+- Open `client/index.html` in your browser
 - Enter coordinator URL: `https://your-coordinator:8443`
 - Enter server public key (shown in server logs)
 - Enter password (same as in server config)
 - Click "Connect"
+- Select the `files` app when it appears
 - Browse, upload, download files on your home network
 
 ## Security Model
@@ -120,13 +121,14 @@ See [PROTOCOL.md](docs/PROTOCOL.md) for detailed specifications.
 - [ARCHITECTURE.md](docs/ARCHITECTURE.md) - System design and components
 - [PROTOCOL.md](docs/PROTOCOL.md) - Detailed protocol specifications
 - [SECURITY.md](docs/SECURITY.md) - Security architecture and cryptography
+- [APPS.md](docs/APPS.md) - App architecture and delivery plan
 - [WEBRTC_LIBRARIES.md](docs/WEBRTC_LIBRARIES.md) - WebRTC library options for Node.js
 
 ### Component Documentation
 - [coordinator/README.md](coordinator/README.md) - Coordinator implementation
-- [server/FILE_SERVICE.md](server/FILE_SERVICE.md) - File service API
+- [docs/FILE_SERVICE.md](docs/FILE_SERVICE.md) - File app API
 - [client/README.md](client/README.md) - Client API reference
-- [client/apps/README.md](client/apps/README.md) - File Browser app guide
+- [client/apps/README.md](client/apps/README.md) - File app guide (migration in progress)
 
 ### Code Reference
 - [shared/crypto.js](shared/crypto.js) - Crypto primitives (Ed25519/Ed448, X25519/X448, AES-GCM)
@@ -211,7 +213,7 @@ npm run test:system        # System tests only
 - [x] Client API (browser ES modules)
 - [x] HTTPS endpoints for client-coordinator communication
 - [x] File service API for remote file access
-- [x] File Browser web application
+- [x] File app UI (migration in progress)
 - [x] Comprehensive test coverage
 - [x] Documentation and examples
 - [ ] Additional service types (VNC, SSH)

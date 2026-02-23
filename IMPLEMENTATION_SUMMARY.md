@@ -1,8 +1,8 @@
-# Implementation Summary: Client API, File Browser App, and Server APIs
+# Implementation Summary: Client API, File App, and Server APIs
 
 ## Overview
 
-This implementation adds complete client-side infrastructure, HTTPS coordinator endpoints, server file service APIs, and a fully functional File Browser web application to the HomeChannel project.
+This implementation adds complete client-side infrastructure, HTTPS coordinator endpoints, server file service APIs, and a file app UI to the HomeChannel project.
 
 ## What Was Implemented
 
@@ -31,7 +31,7 @@ This implementation adds complete client-side infrastructure, HTTPS coordinator 
 - No sync file operations
 - Sanitized error messages
 
-### Phase 3: File Browser App ✅
+### Phase 3: File App ✅
 
 - File list with icons, sizes, dates
 - Operations: browse, upload, download, create folder, delete
@@ -240,9 +240,10 @@ node index.js
 
 ### 3. Connect with Browser
 ```
-Open client/apps/filebrowser.html
+Open client/index.html
 Enter: coordinator URL, server public key, password
 Click "Connect"
+Select the "files" app
 Browse and manage files
 ```
 
@@ -291,12 +292,9 @@ Completed features enable:
 - [x] Tests and documentation
 - [x] Example configuration
 
-### File Browser App
-- [x] Self-contained HTML application
-- [x] Full UI with all operations
-- [x] Embedded SVG icons
-- [x] Tests and documentation
-- [x] Responsive design
+### File App
+- [x] File operations UI (to be migrated to app bundle)
+- [x] Tests and documentation (migration in progress)
 
 ### HTTPS Endpoints
 - [x] All 4 API endpoints
@@ -320,7 +318,7 @@ The HomeChannel project now has a complete, working implementation of:
 - Browser client API for WebRTC connections
 - HTTPS coordinator endpoints for signaling
 - Server file service APIs for remote file access
-- Fully functional File Browser web application
+- File app UI (migration in progress)
 - Comprehensive test coverage (99.1%)
 - Complete documentation
 - Zero security vulnerabilities

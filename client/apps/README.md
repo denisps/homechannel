@@ -1,6 +1,6 @@
-# HomeChannel File Browser
+# HomeChannel File App
 
-A self-contained web application for browsing and managing files on your home server via HomeChannel's secure WebRTC datachannel.
+An app module for browsing and managing files on your home server, delivered over HomeChannel's secure WebRTC datachannel.
 
 ## Features
 
@@ -15,18 +15,13 @@ A self-contained web application for browsing and managing files on your home se
 
 ## Quick Start
 
-### 1. Open the File Browser
+### 1. Open the Client
 
-The file browser can run directly from the local filesystem without needing a web server:
+Open the HomeChannel client shell:
 
 ```bash
-# Simply open the file in your browser:
-open client/apps/filebrowser.html
-
-# Or double-click the file in your file explorer
+open client/index.html
 ```
-
-**Note:** The app uses script tags instead of ES modules, allowing it to work from `file://` URLs without a web server.
 
 ### 2. Connect to Your Server
 
@@ -43,7 +38,11 @@ MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE...
 -----END PUBLIC KEY-----
 ```
 
-### 3. Browse and Manage Files
+### 3. Select the File App
+
+When the app list loads, select the `files` app.
+
+### 4. Browse and Manage Files
 
 Once connected:
 
@@ -56,12 +55,13 @@ Once connected:
 
 ## Server Configuration
 
-The file browser uses the HomeChannel file service. Configure it on your home server:
+The file app uses the HomeChannel file service. Configure it on your home server:
 
 ```javascript
 // server/config.js
 export default {
-  services: {
+  apps: ['files'],
+  appsConfig: {
     files: {
       enabled: true,
       rootDir: '/home/user',           // Root directory for file access
@@ -85,7 +85,7 @@ export default {
 
 ## File Service Operations
 
-The file browser uses these operations from the file service:
+The file app uses these operations from the file service:
 
 | Operation | Description | Parameters |
 |-----------|-------------|------------|
@@ -197,7 +197,7 @@ All styles are embedded in the HTML file. To customize:
 
 ### Adding Features
 
-The file browser is designed to be extensible:
+The file app is designed to be extensible:
 
 - Add new operations by updating `sendRequest()` calls
 - Add new UI elements in the HTML
@@ -235,19 +235,14 @@ The file browser is designed to be extensible:
 
 ### File Structure
 
-The app uses a single universal module file that works in both contexts:
+The app is delivered as an ES module bundle over the `files` datachannel:
 
 ```
-client/apps/
-├── filebrowser.html   # Main application file
-├── client.js          # Universal module (ES module + script tag)
-└── README.md          # This file
+server/apps/
+└── files/             # File app module bundle
 ```
 
-**Note:** The `client.js` file is a universal module that:
-- Exports ES module exports (`export { Client, verifySignature, hashChallengeAnswer }`)
-- Also exports to `window.HomeChannelClient` when loaded via script tag
-- Contains all crypto utilities built-in (no separate crypto-browser.js needed)
+**Note:** The client loads the app bundle into a sandboxed iframe for UI isolation.
 
 ### System Architecture
 
@@ -255,9 +250,9 @@ client/apps/
 ┌─────────────┐         ┌──────────────┐         ┌──────────┐
 │  Browser    │         │  Coordinator │         │   Home   │
 │             │         │   (Public)   │         │  Server  │
-│ filebrowser │◄───────►│              │◄───────►│          │
-│    .html    │  HTTPS  │   iframe     │   UDP   │  Files   │
-│             │  (signaling) │         │         │  Service │
+│  index.html │◄───────►│              │◄───────►│          │
+│  client.js  │  HTTPS  │   iframe     │   UDP   │  Files   │
+│  + app UI   │  (signaling) │         │         │   App    │
 └─────────────┘         └──────────────┘         └──────────┘
        │                                                │
        └────────────────────────────────────────────────┘

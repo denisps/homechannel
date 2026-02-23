@@ -98,7 +98,8 @@ Edit `config.json`:
   "password": "your-secure-password",
   "privateKeyPath": "./server-private.pem",
   "publicKeyPath": "./server-public.pem",
-  "services": {
+  "apps": ["files"],
+  "appsConfig": {
     "files": {
       "enabled": true,
       "rootDir": "/home/username",
@@ -149,13 +150,13 @@ You'll need this for the client.
 
 ## Step 3: Connect with Client (Browser)
 
-### 3.1 Open File Browser
+### 3.1 Open Client
 
-Open `client/apps/filebrowser.html` in your browser.
+Open `client/index.html` in your browser.
 
 **Options:**
-- Local file: `file:///path/to/homechannel/client/apps/filebrowser.html`
-- Or host on a web server: `https://your-domain.com/filebrowser.html`
+- Local file: `file:///path/to/homechannel/client/index.html`
+- Or host on a web server: `https://your-domain.com/index.html`
 
 ### 3.2 Enter Connection Details
 
@@ -170,7 +171,11 @@ Click "Connect". You should see:
 - Then: "Connected to server"
 - File list showing your configured directories
 
-### 3.4 Browse Files
+### 3.4 Select File App
+
+Select the `files` app when the app list loads.
+
+### 3.5 Browse Files
 
 You can now:
 - Click folders to navigate
@@ -430,5 +435,5 @@ pm2 restart all
 
 - Read [ARCHITECTURE.md](docs/ARCHITECTURE.md) to understand the system
 - Review [SECURITY.md](docs/SECURITY.md) for security best practices
-- Explore [FILE_SERVICE.md](server/FILE_SERVICE.md) for file service API
+- Explore [FILE_SERVICE.md](docs/FILE_SERVICE.md) for file app API
 - Check [client API docs](client/README.md) to build custom apps

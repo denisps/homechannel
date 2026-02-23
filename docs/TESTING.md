@@ -76,10 +76,10 @@ Unit tests validate individual functions and classes in isolation:
 - **shared/test/protocol.test.js**: Protocol message encoding/decoding
 - **coordinator/test/coordinator.test.js**: Registry and UDP protocol handling
 - **coordinator/test/https.test.js**: HTTPS endpoints
-- **server/test/services.test.js**: File service operations
+- **server/test/services.test.js**: File app operations (migration in progress)
 - **server/test/webrtc.test.js**: WebRTC library abstraction
 - **client/test/client.test.js**: Client API and WebRTC handling
-- **client/test/filebrowser.test.js**: File browser HTML validation
+- **client/test/filebrowser.test.js**: File app UI validation (migration in progress)
 
 **Characteristics:**
 - Fast execution (< 3 seconds per suite)

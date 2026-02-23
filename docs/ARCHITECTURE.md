@@ -47,25 +47,29 @@ HomeChannel's three-component architecture enables direct peer-to-peer connectio
 - Computes challenge answer from password
 - Handles all WebRTC operations (creates offer, gathers ICE candidates)
 - Establishes direct datachannel with server
+- Requests app list over a control channel
+- Opens per-app datachannels using app names
+- Loads app ES module bundles into sandboxed iframes
 - Receives messages from coordinator iframe via postMessage
 - Maintains datachannel connection after iframe deletion
 - Handles connection recovery (recreates iframe when needed)
 
 **Implementation**:
-- Self-contained single HTML file with embedded scripts, styles, and SVG images
-- No external dependencies (scripts, styles, images all embedded)
-- Can be attested via cryptographic hash verification
+- Minimal `index.html` shell
+- Main logic in `client.js` for testability and auditability
+- Client code can be saved locally for offline review
 
 **Hosting Options**:
 - Hosted on same site as coordinator iframe (convenience)
-- Local HTML file (for attestation and security verification purposes)
+- Local `index.html` and `client.js` (for audit and offline usage)
 
 **Communication**:
 - PostMessage with coordinator iframe (during setup)
 - Direct WebRTC datachannel to server (after setup)
 
 **Key Files**:
-- `/client/index.html` - Main app page (self-contained)
+- `/client/index.html` - Main app page (minimal shell)
+- `/client/client.js` - Primary client logic and tests
 - `/client/iframe.html` - Coordinator iframe (self-contained)
 
 ### Server (Home Node.js)
@@ -81,6 +85,9 @@ HomeChannel's three-component architecture enables direct peer-to-peer connectio
 - WebRTC peer connection handling (creates answer)
 - Gathers all ICE candidates before sending
 - Local service proxying (VNC, SSH, files)
+- Loads server-side apps and serves ES module bundles over datachannels
+- Wraps app calls in try/catch or promise error handlers
+- Optionally isolates apps in per-app workers
 
 **Communication**:
 - UDP to coordinator (AES-GCM encrypted after registration)
@@ -92,7 +99,8 @@ HomeChannel's three-component architecture enables direct peer-to-peer connectio
 - `/server/webrtc.js` - WebRTC connection handling
 - `/server/crypto.js` - Ed25519/Ed448 signing, AES-GCM encryption
 - `/server/challenge.js` - Challenge generation
-- `/server/services/` - Service handlers (VNC, SSH, files)
+- `/server/apps/` - App modules (delivered over datachannels)
+- `/server/services/` - Legacy service handlers (to be migrated)
 
 ### Coordinator (Public Node.js)
 
@@ -139,6 +147,8 @@ HomeChannel's three-component architecture enables direct peer-to-peer connectio
 ![Client Connection](client-connection.svg)
 
 *Shows iframe lifecycle and WebRTC establishment. All coordinator communication uses HTTPS API calls. See [PROTOCOL.md](PROTOCOL.md) for message formats.*
+
+*After connection, the client requests the app list on a control channel and opens per-app channels named after each app.*
 
 ### Keepalive
 
@@ -243,13 +253,13 @@ Map<sourceIP, {
 
 - **Security Isolation**: Coordinator communication code runs in separate context
 - **Reduced Attack Surface**: Main app never directly contacts coordinator
-- **Attestation**: App page can be served from local file for verification
+- **Attestation**: `index.html` and `client.js` can be served locally for verification
 - **Trust Boundary**: Clear separation between trusted (app) and untrusted (coordinator) code
 - **PostMessage API**: Browser-native secure communication mechanism
 - **Flexibility**: App page can be self-hosted or loaded locally without affecting coordinator access
 - **Lifecycle Management**: Iframe deleted after connection, minimizing attack window
 - **Connection Recovery**: Iframe recreated only when needed for reconnection
-- **Self-Contained**: Both files are single HTML with embedded resources (no external dependencies)
+- **Self-Contained**: Coordinator iframe remains fully embedded and isolated
 - **Monetization**: Iframe can display ads/captcha without compromising app security
 
 ## Performance Characteristics

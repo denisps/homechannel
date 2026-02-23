@@ -18,7 +18,7 @@ Each component has its own Ed25519/Ed448 key pair:
 
 ### 3. Client Trust
 - Stores coordinator's public key
-- Stores known server public keys
+- Stores known server public keys (embedded in `index.html`, entered manually, or saved in localStorage)
 - Verifies all signatures before trusting data
 
 ## Cryptographic Operations
@@ -102,6 +102,14 @@ Once datachannel is established:
 - **No Coordinator**: Coordinator cannot intercept data
 - **Perfect Forward Secrecy**: WebRTC provides PFS
 
+## App Delivery Security
+
+- App bundles are delivered directly from the server over WebRTC datachannels.
+- App payloads are trusted from the server (no extra integrity layer).
+- Client runs apps in sandboxed iframes to reduce UI attack surface.
+- Server runs app handlers with try/catch or promise error handlers.
+- Optional per-app workers provide fault isolation on the server side.
+
 ## Threat Model
 
 ### Protected Against
@@ -120,6 +128,7 @@ Once datachannel is established:
 ❌ **Stolen Keys**: Physical access to key files
 ❌ **Weak Passwords**: Challenge-response only as strong as password
 ❌ **Browser Vulnerabilities**: Client runs in browser context
+❌ **Malicious Server Apps**: App payloads are trusted from the server
 
 ## Key Management
 
