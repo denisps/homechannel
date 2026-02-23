@@ -139,7 +139,7 @@ describe('ServiceRouter Apps', () => {
     let testDir;
 
     before(async () => {
-      testDir = path.join(os.tmpdir(), 'hc-apps-test-' + Date.now());
+      testDir = path.join(os.tmpdir(), 'hc-apps-test-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8));
       await fsPromises.mkdir(testDir, { recursive: true });
       await fsPromises.writeFile(path.join(testDir, 'hello.txt'), 'world');
 

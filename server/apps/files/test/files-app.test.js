@@ -10,7 +10,7 @@ describe('Files App', () => {
   let appInstance;
 
   before(async () => {
-    testDir = path.join(os.tmpdir(), 'hc-files-app-test-' + Date.now());
+    testDir = path.join(os.tmpdir(), 'hc-files-app-test-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8));
     await fsPromises.mkdir(testDir, { recursive: true });
     await fsPromises.writeFile(path.join(testDir, 'sample.txt'), 'hello');
 

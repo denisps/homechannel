@@ -657,6 +657,7 @@ class Client {
       appIframe.style.width = '100%';
       appIframe.style.height = '100%';
       appIframe.style.border = 'none';
+      // Bundle is trusted from server (see APPS.md: trust server payloads)
       appIframe.srcdoc = `<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body><script type="module">${bundle}<\/script></body></html>`;
 
       container.appendChild(appIframe);
