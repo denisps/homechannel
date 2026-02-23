@@ -166,7 +166,8 @@ class Client {
         connected: [],
         message: [],
         disconnected: [],
-        error: []
+        error: [],
+        appsLoaded: []
       };
       
       // Pending iframe requests
@@ -176,6 +177,13 @@ class Client {
       // ICE candidate gathering
       this.iceCandidates = [];
       this.iceGatheringComplete = false;
+
+      // App channels
+      this.controlChannel = null;
+      this.appChannels = new Map();   // appName -> RTCDataChannel
+      this.apps = [];                  // app list from server
+      this.controlRequests = new Map(); // requestId -> { resolve, reject }
+      this.appIframes = new Map();     // appName -> iframe element
     }
     
     /**
@@ -579,9 +587,184 @@ class Client {
     }
     
     /**
-     * Close peer connection
+     * Request app list over the apps-control channel
+     * @returns {Promise<Array>} List of available apps
      */
+    async requestAppList() {
+      if (this.state !== 'connected' || !this.peerConnection) {
+        throw new Error('Not connected');
+      }
+
+      // Create control channel if not already open
+      if (!this.controlChannel || this.controlChannel.readyState !== 'open') {
+        this.controlChannel = this.peerConnection.createDataChannel('apps-control', { ordered: true });
+        await this._waitForChannelOpen(this.controlChannel);
+        this._setupControlChannel();
+      }
+
+      const requestId = `ctrl_${this.nextRequestId++}`;
+      const result = await new Promise((resolve, reject) => {
+        this.controlRequests.set(requestId, { resolve, reject });
+
+        this.controlChannel.send(JSON.stringify({
+          type: 'apps:list',
+          requestId
+        }));
+
+        setTimeout(() => {
+          if (this.controlRequests.has(requestId)) {
+            this.controlRequests.delete(requestId);
+            reject(new Error('App list request timeout'));
+          }
+        }, 30000);
+      });
+
+      this.apps = result.apps || [];
+      this.emit('appsLoaded', this.apps);
+      return this.apps;
+    }
+
+    /**
+     * Open a per-app datachannel
+     * @param {string} appName - Name of the app
+     * @returns {Promise<RTCDataChannel>} Opened datachannel
+     */
+    async openAppChannel(appName) {
+      if (this.state !== 'connected' || !this.peerConnection) {
+        throw new Error('Not connected');
+      }
+
+      if (appName === 'apps-control') {
+        throw new Error('Cannot open reserved channel name: apps-control');
+      }
+
+      const channel = this.peerConnection.createDataChannel(appName, { ordered: true });
+      await this._waitForChannelOpen(channel);
+      this.appChannels.set(appName, channel);
+      return channel;
+    }
+
+    /**
+     * Load app bundle into a sandboxed iframe
+     * @param {string} appName - Name of the app
+     * @param {string} bundle - ES module bundle source
+     * @param {HTMLElement} container - DOM container for the iframe
+     * @returns {HTMLIFrameElement} Created iframe
+     */
+    loadAppInSandbox(appName, bundle, container) {
+      const appIframe = document.createElement('iframe');
+      appIframe.sandbox = 'allow-scripts';
+      appIframe.style.width = '100%';
+      appIframe.style.height = '100%';
+      appIframe.style.border = 'none';
+      // Bundle is trusted from server (see APPS.md: trust server payloads)
+      appIframe.srcdoc = `<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body><script type="module">${bundle}<\/script></body></html>`;
+
+      container.appendChild(appIframe);
+      this.appIframes.set(appName, appIframe);
+      return appIframe;
+    }
+
+    /**
+     * Internal: handle control channel messages
+     */
+    _handleControlMessage(data) {
+      try {
+        const message = typeof data === 'string' ? JSON.parse(data) : data;
+        const pending = this.controlRequests.get(message.requestId);
+        if (pending) {
+          this.controlRequests.delete(message.requestId);
+          if (message.error) {
+            pending.reject(new Error(message.error));
+          } else {
+            pending.resolve(message);
+          }
+        }
+      } catch (error) {
+        this.emit('error', error);
+      }
+    }
+
+    /**
+     * Setup control channel message handler
+     */
+    _setupControlChannel() {
+      if (this.controlChannel) {
+        this.controlChannel.onmessage = (event) => {
+          this._handleControlMessage(event.data);
+        };
+      }
+    }
+
+    /**
+     * Wait for a datachannel to open
+     * @param {RTCDataChannel} channel
+     * @returns {Promise<void>}
+     */
+    _waitForChannelOpen(channel) {
+      return new Promise((resolve, reject) => {
+        if (channel.readyState === 'open') {
+          resolve();
+          return;
+        }
+
+        let timeoutId;
+
+        const openHandler = () => {
+          clearTimeout(timeoutId);
+          channel.removeEventListener('open', openHandler);
+          channel.removeEventListener('error', errorHandler);
+          resolve();
+        };
+
+        const errorHandler = (error) => {
+          clearTimeout(timeoutId);
+          channel.removeEventListener('open', openHandler);
+          channel.removeEventListener('error', errorHandler);
+          reject(error);
+        };
+
+        channel.addEventListener('open', openHandler);
+        channel.addEventListener('error', errorHandler);
+
+        timeoutId = setTimeout(() => {
+          channel.removeEventListener('open', openHandler);
+          channel.removeEventListener('error', errorHandler);
+          reject(new Error('Channel open timeout'));
+        }, 10000);
+      });
+    }
+
+    /**
+      * Close peer connection
+      */
     closePeerConnection() {
+      // Close control channel
+      if (this.controlChannel) {
+        this.controlChannel.close();
+        this.controlChannel = null;
+      }
+
+      // Close app channels
+      for (const [, channel] of this.appChannels) {
+        channel.close();
+      }
+      this.appChannels.clear();
+
+      // Clean up app iframes
+      for (const [, appIframe] of this.appIframes) {
+        if (appIframe.parentNode) {
+          appIframe.parentNode.removeChild(appIframe);
+        }
+      }
+      this.appIframes.clear();
+
+      // Clean up control requests
+      for (const [, { reject }] of this.controlRequests) {
+        reject(new Error('Client disconnected'));
+      }
+      this.controlRequests.clear();
+
       if (this.dataChannel) {
         this.dataChannel.close();
         this.dataChannel = null;

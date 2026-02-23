@@ -77,6 +77,18 @@ class Server {
     // Initialize service router
     this.serviceRouter = new ServiceRouter(this.config.services || {});
 
+    // Load apps if configured
+    const appNames = this.config.apps || [];
+    if (appNames.length > 0) {
+      const { errors } = await this.serviceRouter.loadApps(
+        appNames,
+        this.config.appsConfig || {}
+      );
+      for (const err of errors) {
+        console.warn(`App load error [${err.name}]: ${err.error}`);
+      }
+    }
+
     // Initialize UDP client
     this.udpClient = new UDPClient(
       this.config.coordinator.host,
