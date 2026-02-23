@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HomeChannel</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #333;
+    }
+    .card {
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+      padding: 2rem;
+      max-width: 500px;
+      width: 90%;
+    }
+    h1 { font-size: 1.6rem; color: #667eea; margin-bottom: 1.5rem; text-align: center; }
+    .form-group { margin-bottom: 1.2rem; }
+    label { display: block; margin-bottom: 0.4rem; font-weight: 500; color: #555; }
+    input, textarea {
+      width: 100%; padding: 0.6rem; border: 1px solid #ddd;
+      border-radius: 6px; font-size: 1rem; font-family: inherit;
+    }
+    input:focus, textarea:focus { outline: none; border-color: #667eea; }
+    textarea { min-height: 80px; font-family: monospace; font-size: 0.85rem; }
+    button {
+      padding: 0.7rem 1.4rem; border: none; border-radius: 6px;
+      font-size: 1rem; font-weight: 500; cursor: pointer; width: 100%;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: #fff;
+    }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    #app-container {
+      display: none; position: fixed; top: 0; left: 0;
+      width: 100%; height: 100%; background: #fff;
+    }
+    #app-list { list-style: none; }
+    #app-list li {
+      padding: 0.6rem; margin: 0.3rem 0; background: #f5f7fa;
+      border-radius: 6px; cursor: pointer;
+    }
+    #app-list li:hover { background: #eef2ff; }
+    .status { text-align: center; margin-top: 1rem; font-size: 0.9rem; color: #666; }
+    .error { color: #ff6b6b; }
+  </style>
+</head>
+<body>
+  <div id="connect-view" class="card">
+    <h1>🏠 HomeChannel</h1>
+    <form id="connect-form">
+      <div class="form-group">
+        <label for="coordinator-url">Coordinator URL</label>
+        <input type="url" id="coordinator-url" placeholder="https://coordinator.example.com" required />
+      </div>
+      <div class="form-group">
+        <label for="server-key">Server Public Key</label>
+        <textarea id="server-key" placeholder="Paste PEM or base64 public key" required></textarea>
+      </div>
+      <div class="form-group">
+        <label for="password">Password</label>
+        <input type="password" id="password" placeholder="Enter password" required />
+      </div>
+      <button type="submit" id="connect-btn">Connect</button>
+      <div class="status" id="status"></div>
+    </form>
+  </div>
+
+  <div id="app-view" class="card" style="display:none;">
+    <h1>Apps</h1>
+    <ul id="app-list"></ul>
+    <div class="status" id="app-status"></div>
+  </div>
+
+  <div id="app-container"></div>
+
+  <script type="module">
+    import { Client } from './apps/client.js';
+
+    const LS_KEY_URL = 'hc_coordinator_url';
+    const LS_KEY_PK  = 'hc_server_key';
+
+    const coordinatorInput = document.getElementById('coordinator-url');
+    const serverKeyInput   = document.getElementById('server-key');
+    const connectForm      = document.getElementById('connect-form');
+    const connectBtn       = document.getElementById('connect-btn');
+    const statusEl         = document.getElementById('status');
+    const connectView      = document.getElementById('connect-view');
+    const appView          = document.getElementById('app-view');
+    const appListEl        = document.getElementById('app-list');
+    const appStatusEl      = document.getElementById('app-status');
+    const appContainer     = document.getElementById('app-container');
+
+    // Restore saved values from localStorage
+    try {
+      const savedUrl = localStorage.getItem(LS_KEY_URL);
+      const savedKey = localStorage.getItem(LS_KEY_PK);
+      if (savedUrl) coordinatorInput.value = savedUrl;
+      if (savedKey) serverKeyInput.value = savedKey;
+    } catch (_) { /* localStorage unavailable */ }
+
+    // Optional: load public key from URL embed param
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const embedKey = params.get('serverKey');
+      if (embedKey) serverKeyInput.value = decodeURIComponent(embedKey);
+    } catch (_) { /* ignore */ }
+
+    let client = null;
+
+    connectForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const url      = coordinatorInput.value.trim();
+      const key      = serverKeyInput.value.trim();
+      const password = document.getElementById('password').value;
+
+      // Persist to localStorage
+      try {
+        localStorage.setItem(LS_KEY_URL, url);
+        localStorage.setItem(LS_KEY_PK, key);
+      } catch (_) { /* ignore */ }
+
+      connectBtn.disabled = true;
+      statusEl.textContent = 'Connecting…';
+      statusEl.classList.remove('error');
+
+      try {
+        client = new Client(url);
+
+        client.on('error', (err) => {
+          statusEl.textContent = err.message || 'Error';
+          statusEl.classList.add('error');
+        });
+
+        client.on('disconnected', () => {
+          appView.style.display = 'none';
+          appContainer.style.display = 'none';
+          connectView.style.display = 'block';
+          connectBtn.disabled = false;
+          statusEl.textContent = 'Disconnected';
+        });
+
+        await client.connect(key, password);
+
+        // Connected - show app list
+        connectView.style.display = 'none';
+        appView.style.display = 'block';
+        appStatusEl.textContent = 'Loading apps…';
+
+        try {
+          const apps = await client.requestAppList();
+          renderAppList(apps);
+        } catch (err) {
+          appStatusEl.textContent = 'Failed to load apps: ' + err.message;
+          appStatusEl.classList.add('error');
+        }
+      } catch (err) {
+        statusEl.textContent = err.message || 'Connection failed';
+        statusEl.classList.add('error');
+        connectBtn.disabled = false;
+      }
+    });
+
+    function renderAppList(apps) {
+      appListEl.innerHTML = '';
+      if (!apps || apps.length === 0) {
+        appStatusEl.textContent = 'No apps available';
+        return;
+      }
+      appStatusEl.textContent = '';
+      for (const app of apps) {
+        const li = document.createElement('li');
+        li.textContent = `${app.name} v${app.version}`;
+        if (app.description) li.title = app.description;
+        li.addEventListener('click', () => openApp(app.name));
+        appListEl.appendChild(li);
+      }
+    }
+
+    async function openApp(appName) {
+      appStatusEl.textContent = `Opening ${appName}…`;
+      try {
+        const channel = await client.openAppChannel(appName);
+        // Wait for app bundle header + payload
+        channel.onmessage = (event) => {
+          try {
+            const data = typeof event.data === 'string' ? event.data : '';
+            // Attempt to parse as bundle header
+            const parsed = JSON.parse(data);
+            if (parsed.type === 'app:bundle') {
+              // Next message will be the bundle
+              channel.onmessage = (bundleEvent) => {
+                const bundle = typeof bundleEvent.data === 'string' ? bundleEvent.data : '';
+                appView.style.display = 'none';
+                appContainer.style.display = 'block';
+                client.loadAppInSandbox(appName, bundle, appContainer);
+              };
+            }
+          } catch (_) {
+            // Not a header message
+          }
+        };
+      } catch (err) {
+        appStatusEl.textContent = `Failed to open ${appName}: ${err.message}`;
+        appStatusEl.classList.add('error');
+      }
+    }
+  </script>
+</body>
+</html>

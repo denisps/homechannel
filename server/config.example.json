@@ -11,6 +11,15 @@
     "keyAgreementCurve": "x448"
   },
   "password": "your-secure-password",
+  "apps": ["files"],
+  "appsConfig": {
+    "files": {
+      "enabled": true,
+      "rootDir": "/home/user",
+      "allowedDirs": ["/home/user"],
+      "maxFileSize": 104857600
+    }
+  },
   "services": {
     "files": {
       "enabled": true,
