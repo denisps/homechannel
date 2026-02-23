@@ -18,10 +18,6 @@ const SIGNATURE_ALGORITHMS = {
   ed448: {
     importParams: { name: 'Ed448' },
     verifyParams: { name: 'Ed448' }
-  },
-  'ecdsa-p256': {
-    importParams: { name: 'ECDSA', namedCurve: 'P-256' },
-    verifyParams: { name: 'ECDSA', hash: 'SHA-256' }
   }
 };
 
