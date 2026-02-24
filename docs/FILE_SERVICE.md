@@ -396,7 +396,7 @@ dataChannel.addEventListener('message', (event) => {
 
 ### Files
 
-- `server/apps/files/` - File app module bundle
+- `server/node_modules/files/` - File app module bundle
 - `server/webrtc.js` - WebRTC peer with datachannel message handling
 - `server/index.js` - Server integration
 - `server/test/services.test.js` - Comprehensive tests (migration in progress)

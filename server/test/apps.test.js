@@ -3,7 +3,7 @@ import assert from 'node:assert';
 import { promises as fsPromises } from 'fs';
 import path from 'path';
 import os from 'os';
-import { loadApp, loadApps, validateManifest, getAppList } from '../apps/loader.js';
+import { loadApp, loadApps, validateManifest, getAppList } from '../loader.js';
 import { ServiceRouter } from '../services/index.js';
 
 describe('App Loader', () => {

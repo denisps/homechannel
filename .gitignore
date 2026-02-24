@@ -2,6 +2,12 @@
 node_modules/
 **/node_modules/
 
+# Exception: server/node_modules contains our apps (not dependencies)
+# Apps can be installed via npm but should be tracked in git
+!server/node_modules/
+# Still ignore dependencies installed by individual apps
+server/node_modules/*/node_modules/
+
 # Package locks (use --no-save for test dependencies)
 package-lock.json
 **/package-lock.json

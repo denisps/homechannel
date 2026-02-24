@@ -141,7 +141,7 @@ describe('WebRTC Connectivity Tests', () => {
         
         peer.close();
         
-        assert.strictEqual(peer.dataChannel, null, 'Data channel should be cleared');
+        assert.strictEqual(peer.dataChannels.size, 0, 'Data channels should be cleared');
         assert.strictEqual(peer.getICECandidates().length, 0, 'ICE candidates should be cleared');
       });
     });

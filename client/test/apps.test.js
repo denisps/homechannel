@@ -1,6 +1,6 @@
-import { test, describe, before, beforeEach, afterEach } from 'node:test';
+import { test, describe, before, after, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
-import { Client } from '../apps/client.js';
+import { Client } from '../client.js';
 
 /**
  * Mock browser APIs for testing app features
@@ -16,19 +16,19 @@ class MockRTCPeerConnection {
   createDataChannel(label, options) {
     const ch = new MockRTCDataChannel(label, options);
     this._channels[label] = ch;
-    // Simulate immediate open
-    setTimeout(() => {
+    // Simulate immediate open using microtask to avoid pending timers
+    queueMicrotask(() => {
       ch.readyState = 'open';
       if (ch.onopen) ch.onopen();
-    }, 5);
+    });
     return ch;
   }
 
   async createOffer() { return { type: 'offer', sdp: 'mock' }; }
   async setLocalDescription(d) {
-    setTimeout(() => {
+    queueMicrotask(() => {
       if (this.onicecandidate) this.onicecandidate({ candidate: null });
-    }, 5);
+    });
   }
   async setRemoteDescription() {}
   async addIceCandidate() {}
@@ -58,7 +58,7 @@ class MockRTCDataChannel {
 class MockDocument {
   constructor() {
     this.body = {
-      appendChild: (el) => { setTimeout(() => { if (el.onload) el.onload(); }, 5); },
+      appendChild: (el) => { queueMicrotask(() => { if (el.onload) el.onload(); }); },
       removeChild: () => {}
     };
   }
@@ -90,6 +90,13 @@ describe('Client App Discovery', () => {
   let client;
 
   before(() => { setupMocks(); });
+
+  after(() => {
+    // Cleanup global mocks
+    delete global.RTCPeerConnection;
+    delete global.document;
+    delete global.window;
+  });
 
   beforeEach(() => {
     client = new Client('https://coord.example.com');
@@ -128,7 +135,7 @@ describe('Client App Discovery', () => {
     const promise = client.requestAppList();
 
     // Wait for channel to open and handler to be set
-    await new Promise(r => setTimeout(r, 20));
+    await new Promise(r => queueMicrotask(r));
 
     // Verify control channel was created
     assert.ok(client.controlChannel);

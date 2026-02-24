@@ -45,7 +45,7 @@ export function validateManifest(manifest, appName) {
  * @returns {Promise<{ name: string, manifest?: object, module?: object, instance?: object, error?: string }>}
  */
 export async function loadApp(appName, appConfig = {}) {
-  const appDir = path.join(__dirname, appName);
+  const appDir = path.join(__dirname, 'node_modules', appName);
 
   // Check app directory exists
   try {

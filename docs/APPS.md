@@ -18,7 +18,7 @@
   - Most UI and logic lives here for testability.
   - Loads app metadata from server.
   - Requests app bundles over the datachannel.
-- `server/apps/`
+- `server/node_modules/`
   - Each app is a Node.js module (folder per app).
   - Provides an async entry that can be safely invoked.
   - Optional app-specific static assets (if needed for client rendering).
@@ -28,7 +28,7 @@
 
 ## App Packaging Model
 
-- Each app is a self-contained Node.js module directory under `server/apps/<app-name>/`.
+- Each app is a self-contained Node.js module directory under `server/node_modules/<app-name>/`.
 - Apps expose a single async entry point (e.g. `async run(context)`), no globals.
 - Apps should be pure async and wrap logic in try/catch.
 - Server should wrap app calls in try/catch or promise error handling, or dispatch via inter-process messages.
@@ -82,7 +82,7 @@
 
 1. Create `client/index.html` and move most logic to `client/client.js`.
 2. Introduce `docs/APPS.md` (this document) and update related docs.
-3. Add `server/apps/` folder and move existing apps into it.
+3. Add `server/node_modules/` folder and move existing apps into it.
 4. Define an app manifest format and minimal server loader contract.
 5. Add a control channel spec to `docs/PROTOCOL.md`.
 6. Update tests to target `client.js` and app loading flow.

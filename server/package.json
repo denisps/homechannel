@@ -6,8 +6,8 @@
   "type": "module",
   "scripts": {
     "start": "node index.js",
-    "test": "node --test test/*.test.js apps/*/test/*.test.js",
-    "test:watch": "node --test --watch test/*.test.js apps/*/test/*.test.js",
+    "test": "node --test test/*.test.js node_modules/*/test/*.test.js",
+    "test:watch": "node --test --watch test/*.test.js node_modules/*/test/*.test.js",
     "test:webrtc": "./test-webrtc-connectivity.sh",
     "test:all": "npm test && npm run test:webrtc"
   },

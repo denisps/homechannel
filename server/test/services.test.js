@@ -2,7 +2,7 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert';
 import { promises as fsPromises } from 'fs';
 import path from 'path';
-import { FileService } from '../services/files.js';
+import { FileService } from '../node_modules/files/index.js';
 import { ServiceRouter } from '../services/index.js';
 import os from 'os';
 

@@ -1,6 +1,6 @@
 import { test, describe, before, after, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
-import { Client, verifySignature, hashChallengeAnswer } from '../apps/client.js';
+import { Client, verifySignature, hashChallengeAnswer } from '../client.js';
 
 /**
  * Mock browser APIs for Node.js testing
@@ -31,14 +31,14 @@ class MockRTCPeerConnection {
   
   async setLocalDescription(desc) {
     this.localDescription = desc;
-    // Simulate ICE gathering
-    setTimeout(() => {
+    // Simulate ICE gathering using microtasks to avoid pending timers
+    queueMicrotask(() => {
       if (this.onicecandidate) {
         this.onicecandidate({ candidate: { candidate: 'mock-candidate-1', sdpMLineIndex: 0, sdpMid: 'data' } });
         this.onicecandidate({ candidate: { candidate: 'mock-candidate-2', sdpMLineIndex: 0, sdpMid: 'data' } });
         this.onicecandidate({ candidate: null }); // gathering complete
       }
-    }, 10);
+    });
   }
   
   async setRemoteDescription(desc) {
@@ -48,12 +48,12 @@ class MockRTCPeerConnection {
       this.onconnectionstatechange();
     }
     // Simulate datachannel opening
-    setTimeout(() => {
+    queueMicrotask(() => {
       if (this._dataChannel && this._dataChannel.onopen) {
         this._dataChannel.readyState = 'open';
         this._dataChannel.onopen();
       }
-    }, 10);
+    });
   }
   
   async addIceCandidate(candidate) {
@@ -133,9 +133,9 @@ class MockDocument {
   constructor() {
     this.body = {
       appendChild: (el) => {
-        setTimeout(() => {
+        queueMicrotask(() => {
           if (el.onload) el.onload();
-        }, 10);
+        });
       },
       removeChild: (el) => {}
     };
@@ -222,6 +222,13 @@ describe('Client API', () => {
   
   before(() => {
     setupMocks();
+  });
+
+  after(() => {
+    // Cleanup global mocks
+    delete global.RTCPeerConnection;
+    delete global.document;
+    delete global.window;
   });
   
   beforeEach(() => {
@@ -442,6 +449,13 @@ describe('Client Crypto', () => {
   before(() => {
     setupMocks();
   });
+
+  after(() => {
+    // Cleanup global mocks
+    delete global.RTCPeerConnection;
+    delete global.document;
+    delete global.window;
+  });
   
   test('hashChallengeAnswer() returns hex string', async () => {
     // hashChallengeAnswer is already imported from unified module
@@ -454,15 +468,14 @@ describe('Client Crypto', () => {
   test('verifySignature() validates signatures', async () => {
     // verifySignature is already imported from unified module
     
-    // Use a valid base64-encoded public key for testing (format not validated in mock)
+    // Use a valid Ed25519 public key for testing
     const mockPemKey = `-----BEGIN PUBLIC KEY-----
-MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEZHu4+5eE1kPM25YkOkNv+k+D+bdv
-IfbzkS/ryeAH5fEmhrt8I8fC1yqw0ESuxPaH4UtM6QiyiAyOHS1yxFtBug==
+MCowBQYDK2VwAyEAxdoH8g/dPtB8qfiflPBjiaGLL56LvUeJKYzTSY+ssaA=
 -----END PUBLIC KEY-----`;
     
     // Since this is a mock test, we just verify the function runs without error
     // In real usage, this would verify actual server signatures
-    const result = await verifySignature({ test: 'data' }, 'aabbccdd', mockPemKey, 'ecdsa-p256');
+    const result = await verifySignature({ test: 'data' }, 'aabbccdd', mockPemKey, 'ed25519');
     
     // The verification might fail with mock data, but function should return a boolean
     assert.strictEqual(typeof result, 'boolean');

@@ -3,7 +3,11 @@
  * Provides W3C-compliant abstractions for multiple WebRTC libraries
  * Supports: werift, wrtc (node-webrtc), node-datachannel
  */
+import { promises as fsPromises } from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Timeout for node-datachannel local description generation (ms)
 const NODE_DATACHANNEL_TIMEOUT_MS = 5000;
 
@@ -81,7 +85,7 @@ export class WebRTCPeer {
     this.library = library;
     this.libraryName = libraryName;
     this.pc = null;
-    this.dataChannel = null;
+    this.dataChannels = new Map(); // label -> channel (support multiple channels)
     this.iceCandidates = [];
     this.handlers = new Map();
     this.options = options;
@@ -190,10 +194,22 @@ export class WebRTCPeer {
     };
 
     this.pc.ondatachannel = (event) => {
-      this.dataChannel = event.channel || event.datachannel;
-      this._setupDataChannelHandlers(this.dataChannel);
+      const dc = event.channel || event.datachannel;
+      const label = dc.label || 'default';
+      this.dataChannels.set(label, dc);
+      
+      // Route based on channel label
+      if (label === 'apps-control') {
+        this._setupControlChannelHandlers(dc);
+      } else if (this.serviceRouter && this.serviceRouter.apps.has(label)) {
+        this._setupAppChannelHandlers(dc, label);
+      } else {
+        // Legacy single-channel mode
+        this._setupLegacyDataChannelHandlers(dc);
+      }
+      
       if (this.handlers.has('datachannel')) {
-        this.handlers.get('datachannel')(this.dataChannel);
+        this.handlers.get('datachannel')(dc);
       }
     };
 
@@ -236,8 +252,19 @@ export class WebRTCPeer {
     });
 
     this.pc.onDataChannel((dc) => {
-      this.dataChannel = dc;
-      this._setupNodeDatachannelDataChannel(dc);
+      const label = dc.getLabel() || 'default';
+      this.dataChannels.set(label, dc);
+      
+      // Route based on channel label
+      if (label === 'apps-control') {
+        this._setupControlChannelHandlersNodeDC(dc);
+      } else if (this.serviceRouter && this.serviceRouter.apps.has(label)) {
+        this._setupAppChannelHandlersNodeDC(dc, label);
+      } else {
+        // Legacy single-channel mode
+        this._setupNodeDatachannelDataChannel(dc);
+      }
+      
       if (this.handlers.has('datachannel')) {
         this.handlers.get('datachannel')(dc);
       }
@@ -273,9 +300,9 @@ export class WebRTCPeer {
   }
 
   /**
-   * Setup datachannel handlers for W3C libraries
+   * Setup datachannel handlers for W3C libraries (legacy mode)
    */
-  _setupDataChannelHandlers(dc) {
+  _setupLegacyDataChannelHandlers(dc) {
     dc.onmessage = (event) => {
       if (this.handlers.has('message')) {
         this.handlers.get('message')(event.data);
@@ -298,6 +325,72 @@ export class WebRTCPeer {
       if (this.handlers.has('error')) {
         this.handlers.get('error')(error);
       }
+    };
+  }
+
+  /**
+   * Setup control channel handlers (W3C)
+   */
+  _setupControlChannelHandlers(dc) {
+    dc.onmessage = async (event) => {
+      try {
+        const message = JSON.parse(event.data);
+        const response = await this.serviceRouter.handleControlMessage(message);
+        dc.send(JSON.stringify(response));
+      } catch (error) {
+        const errorResponse = {
+          type: 'error',
+          requestId: null,
+          error: error.message || 'Control message error'
+        };
+        dc.send(JSON.stringify(errorResponse));
+      }
+    };
+
+    dc.onopen = () => {
+      // Control channel ready
+    };
+
+    dc.onclose = () => {
+      // Control channel closed
+    };
+
+    dc.onerror = (error) => {
+      console.error('Control channel error:', error);
+    };
+  }
+
+  /**
+   * Setup app channel handlers (W3C)
+   * Sends bundle on open, then handles app messages
+   */
+  _setupAppChannelHandlers(dc, appName) {
+    dc.onopen = async () => {
+      // Send app bundle when channel opens
+      await this._sendAppBundle(dc, appName);
+    };
+
+    dc.onmessage = async (event) => {
+      try {
+        const message = JSON.parse(event.data);
+        const response = await this.serviceRouter.handleAppMessage(appName, message);
+        dc.send(JSON.stringify(response));
+      } catch (error) {
+        const errorResponse = {
+          requestId: null,
+          success: false,
+          error: error.message || 'App message error'
+        };
+        dc.send(JSON.stringify(errorResponse));
+      }
+    };
+
+    dc.onclose = () => {
+      // App channel closed
+    };
+
+    dc.onerror = (error) => {
+      console.error(`App channel error [${appName}]:`, error);
     };
   }
 
@@ -328,6 +421,166 @@ export class WebRTCPeer {
         this.handlers.get('error')(error);
       }
     });
+  }
+
+  /**
+   * Setup control channel handlers (node-datachannel)
+   */
+  _setupControlChannelHandlersNodeDC(dc) {
+    dc.onMessage(async (msg) => {
+      try {
+        const message = JSON.parse(msg);
+        const response = await this.serviceRouter.handleControlMessage(message);
+        dc.sendMessage(JSON.stringify(response));
+      } catch (error) {
+        const errorResponse = {
+          type: 'error',
+          requestId: null,
+          error: error.message || 'Control message error'
+        };
+        dc.sendMessage(JSON.stringify(errorResponse));
+      }
+    });
+
+    dc.onOpen(() => {
+      // Control channel ready
+    });
+
+    dc.onClosed(() => {
+      // Control channel closed
+    });
+
+    dc.onError((error) => {
+      console.error('Control channel error:', error);
+    });
+  }
+
+  /**
+   * Setup app channel handlers (node-datachannel)
+   */
+  _setupAppChannelHandlersNodeDC(dc, appName) {
+    dc.onOpen(async () => {
+      // Send app bundle when channel opens
+      await this._sendAppBundleNodeDC(dc, appName);
+    });
+
+    dc.onMessage(async (msg) => {
+      try {
+        const message = JSON.parse(msg);
+        const response = await this.serviceRouter.handleAppMessage(appName, message);
+        dc.sendMessage(JSON.stringify(response));
+      } catch (error) {
+        const errorResponse = {
+          requestId: null,
+          success: false,
+          error: error.message || 'App message error'
+        };
+        dc.sendMessage(JSON.stringify(errorResponse));
+      }
+    });
+
+    dc.onClosed(() => {
+      // App channel closed
+    });
+
+    dc.onError((error) => {
+      console.error(`App channel error [${appName}]:`, error);
+    });
+  }
+
+  /**
+   * Load app UI bundle from filesystem
+   * @param {string} appName - Name of the app
+   * @param {object} manifest - App manifest
+   * @returns {Promise<string>} UI bundle content
+   */
+  async _loadAppUIBundle(appName, manifest) {
+    if (!manifest.ui) {
+      throw new Error(`App manifest does not specify UI file: ${appName}`);
+    }
+
+    const uiPath = path.join(__dirname, 'node_modules', appName, manifest.ui);
+    
+    try {
+      const bundle = await fsPromises.readFile(uiPath, 'utf8');
+      return bundle;
+    } catch (error) {
+      throw new Error(`Failed to read UI bundle: ${error.message}`);
+    }
+  }
+
+  /**
+   * Send app bundle over datachannel (W3C)
+   */
+  async _sendAppBundle(dc, appName) {
+    try {
+      const app = this.serviceRouter.apps.get(appName);
+      if (!app || !app.manifest) {
+        throw new Error(`App not found: ${appName}`);
+      }
+
+      // Send header with metadata
+      const header = {
+        type: 'app:bundle',
+        name: app.manifest.name,
+        version: app.manifest.version,
+        format: app.manifest.format || 'es-module',
+        entry: app.manifest.entry,
+        ui: app.manifest.ui || null
+      };
+
+      dc.send(JSON.stringify(header));
+      
+      // Load and send UI bundle if specified
+      if (app.manifest.ui) {
+        const bundle = await this._loadAppUIBundle(appName, app.manifest);
+        dc.send(bundle);
+      }
+    } catch (error) {
+      console.error(`Failed to send app bundle [${appName}]:`, error);
+      const errorMsg = {
+        type: 'error',
+        error: error.message || 'Failed to load app bundle'
+      };
+      dc.send(JSON.stringify(errorMsg));
+    }
+  }
+
+  /**
+   * Send app bundle over datachannel (node-datachannel)
+   */
+  async _sendAppBundleNodeDC(dc, appName) {
+    try {
+      const app = this.serviceRouter.apps.get(appName);
+      if (!app || !app.manifest) {
+        throw new Error(`App not found: ${appName}`);
+      }
+
+      // Send header with metadata
+      const header = {
+        type: 'app:bundle',
+        name: app.manifest.name,
+        version: app.manifest.version,
+        format: app.manifest.format || 'es-module',
+        entry: app.manifest.entry,
+        ui: app.manifest.ui || null
+      };
+
+      dc.sendMessage(JSON.stringify(header));
+      
+      // Load and send UI bundle if specified
+      if (app.manifest.ui) {
+        const bundle = await this._loadAppUIBundle(appName, app.manifest);
+        dc.sendMessage(bundle);
+      }
+    } catch (error) {
+      console.error(`Failed to send app bundle [${appName}]:`, error);
+      const errorMsg = {
+        type: 'error',
+        error: error.message || 'Failed to load app bundle'
+      };
+      dc.sendMessage(JSON.stringify(errorMsg));
+    }
   }
 
   /**
@@ -452,16 +705,20 @@ export class WebRTCPeer {
 
   /**
    * Send data through datachannel
+   * @param {string} data - Data to send
+   * @param {string} label - Channel label (defaults to first available channel)
    */
-  send(data) {
-    if (!this.dataChannel) {
+  send(data, label = null) {
+    const dc = label ? this.dataChannels.get(label) : this.dataChannels.values().next().value;
+    
+    if (!dc) {
       throw new Error('Data channel not available');
     }
 
     if (this.libraryName === 'node-datachannel') {
-      this.dataChannel.sendMessage(data);
+      dc.sendMessage(data);
     } else {
-      this.dataChannel.send(data);
+      dc.send(data);
     }
   }
 
@@ -510,13 +767,21 @@ export class WebRTCPeer {
 
   /**
    * Send message over datachannel
+   * @param {object} message - Message object to serialize and send
+   * @param {string} label - Channel label (defaults to first available channel)
    */
-  sendMessage(message) {
-    if (this.dataChannel && this.dataChannel.readyState === 'open') {
-      const json = JSON.stringify(message);
-      this.dataChannel.send(json);
-    } else {
+  sendMessage(message, label = null) {
+    const dc = label ? this.dataChannels.get(label) : this.dataChannels.values().next().value;
+    
+    if (!dc || dc.readyState !== 'open') {
       throw new Error('DataChannel not ready');
+    }
+    
+    const json = JSON.stringify(message);
+    if (this.libraryName === 'node-datachannel') {
+      dc.sendMessage(json);
+    } else {
+      dc.send(json);
     }
   }
 
@@ -528,7 +793,7 @@ export class WebRTCPeer {
       this.pc.close();
     }
     this.iceCandidates = [];
-    this.dataChannel = null;
+    this.dataChannels.clear();
   }
 }
 

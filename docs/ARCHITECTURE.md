@@ -99,7 +99,7 @@ HomeChannel's three-component architecture enables direct peer-to-peer connectio
 - `/server/webrtc.js` - WebRTC connection handling
 - `/server/crypto.js` - Ed25519/Ed448 signing, AES-GCM encryption
 - `/server/challenge.js` - Challenge generation
-- `/server/apps/` - App modules (delivered over datachannels)
+- `/server/node_modules/` - App modules (delivered over datachannels)
 - `/server/services/` - Legacy service handlers (to be migrated)
 
 ### Coordinator (Public Node.js)

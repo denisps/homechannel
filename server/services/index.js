@@ -1,5 +1,5 @@
-import { FileService } from './files.js';
-import { loadApps, getAppList } from '../apps/loader.js';
+import { FileService } from '../node_modules/files/index.js';
+import { loadApps, getAppList } from '../loader.js';
 
 /**
  * Service Router for HomeChannel Server
