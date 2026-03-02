@@ -48,6 +48,66 @@ Edit `config.json` in the coordinator directory:
 
 If you change `crypto.signatureAlgorithm`, regenerate coordinator keys to match the new algorithm.
 
+## Certificate Setup
+
+The coordinator requires TLS certificates for HTTPS communication. Choose the appropriate method for your environment:
+
+### Development: Self-Signed Certificates
+
+For development and testing, generate self-signed certificates:
+
+```bash
+openssl req -x509 -newkey rsa:4096 -keyout keys/key.pem -out keys/cert.pem -days 365 -nodes -subj "/CN=localhost"
+```
+
+This creates:
+- `coordinator/keys/cert.pem` - Self-signed certificate (valid for 365 days)
+- `coordinator/keys/key.pem` - Private key
+
+**Note:** Self-signed certificates will trigger browser warnings and client validation errors. Only use for development.
+
+### Production: Let's Encrypt
+
+For production deployments, use [Let's Encrypt](https://letsencrypt.org/) to obtain free, trusted certificates:
+
+1. **Install Certbot:**
+   ```bash
+   sudo apt-get update && sudo apt-get install certbot python3-certbot-nginx
+   ```
+
+2. **Generate certificates** (replace `example.com` with your domain):
+   ```bash
+   sudo certbot certonly --standalone -d example.com
+   ```
+
+3. **Configure paths** in `config.json`:
+   ```json
+   {
+     "https": {
+       "port": 8443,
+       "certPath": "/etc/letsencrypt/live/example.com/fullchain.pem",
+       "keyPath": "/etc/letsencrypt/live/example.com/privkey.pem"
+     }
+   }
+   ```
+
+4. **Auto-renewal:** Let's Encrypt certificates expire every 90 days. Set up automatic renewal:
+   ```bash
+   sudo systemctl enable certbot.timer && sudo systemctl start certbot.timer
+   ```
+
+5. **File permissions:** Ensure the coordinator process can read the certificate files:
+   ```bash
+   sudo chown -R $USER:$USER /etc/letsencrypt/live/example.com/
+   chmod 600 /etc/letsencrypt/live/example.com/privkey.pem
+   ```
+
+**Benefits of Let's Encrypt:**
+- Free trusted certificates
+- Automatic renewal every 90 days
+- Removes browser warnings
+- Proper client-side certificate validation
+
 ## Running
 
 Start the coordinator:
