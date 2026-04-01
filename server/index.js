@@ -97,7 +97,8 @@ class Server {
       {
         coordinatorPublicKey: this.config.coordinator.publicKey || null,
         keyAgreementCurve,
-        signatureAlgorithm
+        helloMaxRetries: 10000,
+        signatureAlgorithm,
       }
     );
 

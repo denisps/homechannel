@@ -82,14 +82,15 @@
 
   <div id="app-container"></div>
 
-  <script type="module">
-    import { Client } from './client.js';
-
+  <script src="client.js"></script>
+  <script>
     const LS_KEY_URL = 'hc_coordinator_url';
     const LS_KEY_PK  = 'hc_server_key';
+    const LS_KEY_PASS = 'hc_password';
 
     const coordinatorInput = document.getElementById('coordinator-url');
     const serverKeyInput   = document.getElementById('server-key');
+    const passwordInput    = document.getElementById('password');
     const connectForm      = document.getElementById('connect-form');
     const connectBtn       = document.getElementById('connect-btn');
     const statusEl         = document.getElementById('status');
@@ -103,8 +104,10 @@
     try {
       const savedUrl = localStorage.getItem(LS_KEY_URL);
       const savedKey = localStorage.getItem(LS_KEY_PK);
+      const savedPass = localStorage.getItem(LS_KEY_PASS);
       if (savedUrl) coordinatorInput.value = savedUrl;
       if (savedKey) serverKeyInput.value = savedKey;
+      if (savedPass) passwordInput.value = savedPass;
     } catch (_) { /* localStorage unavailable */ }
 
     // Optional: load public key from URL embed param
@@ -120,12 +123,13 @@
       e.preventDefault();
       const url      = coordinatorInput.value.trim();
       const key      = serverKeyInput.value.trim();
-      const password = document.getElementById('password').value;
+      const password = passwordInput.value;
 
       // Persist to localStorage
       try {
         localStorage.setItem(LS_KEY_URL, url);
         localStorage.setItem(LS_KEY_PK, key);
+        localStorage.setItem(LS_KEY_PASS, password);
       } catch (_) { /* ignore */ }
 
       connectBtn.disabled = true;

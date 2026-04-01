@@ -107,6 +107,12 @@ export class UDPClient {
     this.keepaliveIntervalMs = options.keepaliveIntervalMs || 30000; // 30 seconds default
     this.heartbeatIntervalMs = options.heartbeatIntervalMs || 600000; // 10 minutes default
     
+    // HELLO retry configuration
+    this.helloTimeoutMs = options.helloTimeoutMs || 5000;   // 5 seconds per attempt
+    this.helloMaxRetries = options.helloMaxRetries !== undefined ? options.helloMaxRetries : 5;
+    this._helloRetryCount = 0;
+    this._helloRetryTimer = null;
+    
     // Verbosity: 0=silent (errors only), 1=normal (important events), 2=verbose (all messages with details)
     this.verbosity = options.verbosity !== undefined ? options.verbosity : 1;
   }
@@ -154,30 +160,63 @@ export class UDPClient {
 
   /**
    * Initiate registration with HELLO exchange (Phase 1)
+   * Retries up to helloMaxRetries times if no HELLO_ACK is received.
    */
   async initiateRegistration() {
+    this._helloRetryCount = 0;
+    await this._sendHello();
+  }
+
+  /**
+   * Send a single HELLO attempt and schedule a retry on timeout.
+   */
+  async _sendHello() {
     try {
+      if (this.state === 'registered') return; // Already registered, stop retrying
+
       this.state = 'registering';
-      
-      // Generate random 4-byte tag
+
+      // Generate a fresh random 4-byte tag for each attempt
       const crypto = await import('crypto');
       this.serverTag = crypto.default.randomBytes(4);
-      
-      // Encode HELLO message
+
       const payload = encodeHello(this.serverTag);
-      
-      // Send Phase 1: HELLO
       const message = buildUDPMessage(MESSAGE_TYPES.HELLO, payload);
-      
+
       this.socket.send(message, this.coordinatorPort, this.coordinatorHost, (err) => {
         if (err) {
           console.error('Error sending HELLO:', err);
-          throw err;
         }
         if (this.verbosity >= 2) {
-          console.log('Sent HELLO');
+          console.log(`Sent HELLO (attempt ${this._helloRetryCount + 1}/${this.helloMaxRetries + 1})`);
         }
       });
+
+      // Schedule retry if no HELLO_ACK arrives in time
+      if (this._helloRetryTimer) clearTimeout(this._helloRetryTimer);
+      this._helloRetryTimer = setTimeout(async () => {
+        this._helloRetryTimer = null;
+        if (this.state === 'registered') return; // Succeeded in the meantime
+
+        this._helloRetryCount++;
+        if (this._helloRetryCount <= this.helloMaxRetries) {
+          if (this.verbosity >= 1) {
+            console.warn(
+              `No HELLO_ACK received, retrying (${this._helloRetryCount}/${this.helloMaxRetries})...`
+            );
+          }
+          await this._sendHello();
+        } else {
+          this.state = 'disconnected';
+          const err = new Error(
+            `Registration failed: no response from coordinator after ${this.helloMaxRetries + 1} attempts`
+          );
+          console.error(err.message);
+          if (this.handlers.has('error')) {
+            this.handlers.get('error')(err);
+          }
+        }
+      }, this.helloTimeoutMs);
     } catch (error) {
       this.state = 'disconnected';
       throw error;
@@ -233,6 +272,12 @@ export class UDPClient {
    */
   async handleHelloAck(payload) {
     try {
+      // Cancel any pending HELLO retry timer
+      if (this._helloRetryTimer) {
+        clearTimeout(this._helloRetryTimer);
+        this._helloRetryTimer = null;
+      }
+
       const decoded = decodeHelloAck(payload);
       
       // Verify server tag matches what we sent
@@ -683,6 +728,10 @@ export class UDPClient {
    * Stop UDP client
    */
   async stop() {
+    if (this._helloRetryTimer) {
+      clearTimeout(this._helloRetryTimer);
+      this._helloRetryTimer = null;
+    }
     if (this.keepaliveInterval) {
       clearInterval(this.keepaliveInterval);
       this.keepaliveInterval = null;

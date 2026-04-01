@@ -72,6 +72,30 @@ async function makeRequest(method, path, body = null, port = 8443, useTLS = fals
   });
 }
 
+async function makeRequestText(method, path, port = 8443, useTLS = false) {
+  return new Promise((resolve, reject) => {
+    const protocol = useTLS ? https : http;
+    const options = {
+      hostname: 'localhost',
+      port,
+      path,
+      method,
+      headers: {}
+    };
+
+    const req = protocol.request(options, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        resolve({ status: res.statusCode, data, headers: res.headers });
+      });
+    });
+
+    req.on('error', reject);
+    req.end();
+  });
+}
+
 describe('HTTPS Server', () => {
   let registry;
   let coordinatorKeys;
@@ -435,6 +459,14 @@ describe('HTTPS Server', () => {
       
       assert.strictEqual(response.status, 404);
       assert.ok(response.data.error);
+    });
+
+    test('should serve iframe.html at /iframe.html', async (t) => {
+      const response = await makeRequestText('GET', '/iframe.html', testPort);
+
+      assert.strictEqual(response.status, 200);
+      assert.ok(response.data.includes('<title>HomeChannel Coordinator</title>'));
+      assert.ok(response.headers['content-type'].includes('text/html'));
     });
 
     test('should handle malformed JSON', async (t) => {

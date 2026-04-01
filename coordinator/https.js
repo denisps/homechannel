@@ -1,6 +1,9 @@
 import http from 'http';
 import https from 'https';
 import crypto from 'crypto';
+import fs from 'fs/promises';
+
+const IFRAME_PATH = new URL('./http/iframe.html', import.meta.url);
 
 /**
  * HTTPS server for client-coordinator communication
@@ -151,14 +154,27 @@ export class HTTPSServer {
     
     // Route handling
     const url = new URL(req.url, `http://${req.headers.host}`);
-    
-    if (req.method === 'POST' && url.pathname === '/api/servers') {
+
+    if (req.method === 'GET' && url.pathname === '/iframe.html') {
+      await this.handleIframe(req, res);
+    } else if (req.method === 'POST' && url.pathname === '/api/servers') {
       await this.handleListServers(req, res);
     } else if (req.method === 'POST' && url.pathname === '/api/connect') {
       await this.handleConnect(req, res);
     } else if (req.method === 'POST' && url.pathname === '/api/poll') {
       await this.handlePoll(req, res);
     } else {
+      this.sendError(res, 404, 'Not found');
+    }
+  }
+
+  async handleIframe(req, res) {
+    try {
+      const html = await fs.readFile(IFRAME_PATH, 'utf8');
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(html);
+    } catch (err) {
+      console.error('Error serving iframe.html:', err);
       this.sendError(res, 404, 'Not found');
     }
   }
