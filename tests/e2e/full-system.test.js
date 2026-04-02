@@ -225,8 +225,9 @@ describe('E2E: Coordinator and Server Integration', () => {
       });
     }
 
-    // Read server's public key to verify it's still registered
-    const serverPubKeyPath = path.join(testConfigDir, 'server_public.pem');
+    // Read server's public key from the new config path
+    // (server saves it to HOME/.config/homechannel/server.pub)
+    const serverPubKeyPath = path.join(testConfigDir, '.config', 'homechannel', 'server.pub');
     serverPublicKey = await fs.readFile(serverPubKeyPath, 'utf8');
     const serverPublicKeyBase64 = unwrapPublicKey(serverPublicKey);
     
