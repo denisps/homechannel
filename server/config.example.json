@@ -12,6 +12,12 @@
   },
   "password": "your-secure-password",
   "apps": ["files"],
+  "webrtc": {
+    "library": "werift",
+    "iceServers": [
+      { "urls": "stun:stun.l.google.com:19302" }
+    ]
+  },
   "appsConfig": {
     "files": {
       "enabled": true,

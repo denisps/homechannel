@@ -813,7 +813,21 @@ export class WebRTCPeer {
 
     await new Promise((resolve) => {
       this._iceGatheringResolve = resolve;
+
+      // Poll iceGatheringState for libraries that don't fire null onicecandidate (e.g. werift)
+      const pollInterval = setInterval(() => {
+        if (this.pc && this.pc.iceGatheringState === 'complete') {
+          clearInterval(pollInterval);
+          this.iceGatheringComplete = true;
+          if (this._iceGatheringResolve) {
+            this._iceGatheringResolve();
+            this._iceGatheringResolve = null;
+          }
+        }
+      }, 100);
+
       setTimeout(() => {
+        clearInterval(pollInterval);
         this._iceGatheringResolve = null;
         resolve();
       }, timeoutMs);

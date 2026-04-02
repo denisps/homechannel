@@ -200,7 +200,10 @@ class Server {
       if (!this.peers.has(sessionId)) {
         const libraryName = this.config.webrtc?.library || 'werift';
         const peer = await createWebRTCPeer(libraryName, {
-          serviceRouter: this.serviceRouter
+          serviceRouter: this.serviceRouter,
+          config: {
+            iceServers: this.config.webrtc?.iceServers || []
+          }
         });
         
         if (!peer) {
