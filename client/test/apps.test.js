@@ -1,6 +1,7 @@
 import { test, describe, before, after, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
-import { Client } from '../client.js';
+import '../client.js';
+const { Client } = globalThis.HomeChannelClient;
 
 /**
  * Mock browser APIs for testing app features

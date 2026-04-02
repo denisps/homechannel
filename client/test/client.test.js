@@ -1,6 +1,7 @@
 import { test, describe, before, after, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
-import { Client, verifySignature, hashChallengeAnswer } from '../client.js';
+import '../client.js';
+const { Client, verifySignature, hashChallengeAnswer } = globalThis.HomeChannelClient;
 
 /**
  * Mock browser APIs for Node.js testing

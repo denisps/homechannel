@@ -781,14 +781,6 @@ class Client {
 // Exports (works as both ES module and script tag)
 // ============================================================================
 
-// ES module exports
-export { Client, verifySignature, hashChallengeAnswer };
-
-// Browser global exports (for script tag usage)
-if (typeof window !== 'undefined') {
-  window.HomeChannelClient = {
-    Client,
-    verifySignature,
-    hashChallengeAnswer
-  };
-}
+// Expose via globalThis - works in browser (classic script or module) and Node.js
+// Using globalThis avoids the 'export' keyword which is a SyntaxError in classic scripts
+globalThis.HomeChannelClient = { Client, verifySignature, hashChallengeAnswer };
