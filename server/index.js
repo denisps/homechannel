@@ -132,6 +132,12 @@ class Server {
       this.handleMigration(newCoordinator);
     });
 
+    this.udpClient.on('offer', ({ sessionId, payload }) => {
+      this.handleOffer(sessionId, payload).catch(err => {
+        console.error('Error handling WebRTC offer:', err.message);
+      });
+    });
+
     console.log('Server initialized');
   }
 
@@ -186,10 +192,10 @@ class Server {
   /**
    * Handle incoming offer from client (via coordinator)
    */
-  async handleOffer(clientId, sdpOffer) {
+  async handleOffer(sessionId, offerPayload) {
     try {
       // Create or reuse peer connection
-      if (!this.peers.has(clientId)) {
+      if (!this.peers.has(sessionId)) {
         const libraryName = this.config.webrtc?.library || 'werift';
         const peer = await createWebRTCPeer(libraryName, {
           serviceRouter: this.serviceRouter
@@ -199,14 +205,33 @@ class Server {
           throw new Error(`WebRTC library '${libraryName}' not available`);
         }
         
-        this.peers.set(clientId, peer);
+        this.peers.set(sessionId, peer);
       }
 
-      const peer = this.peers.get(clientId);
-      
-      // Create answer
-      const answer = await peer.createAnswer(sdpOffer);
-      
+      const peer = this.peers.get(sessionId);
+
+      // Set remote description (offer)
+      await peer.handleOffer(offerPayload.sdp || offerPayload);
+
+      // Add ICE candidates from the offer
+      if (offerPayload.candidates) {
+        for (const candidate of offerPayload.candidates) {
+          await peer.addICECandidate(candidate).catch(() => {});
+        }
+      }
+
+      // Create answer and set local description
+      const answerSdp = await peer.createAnswer();
+
+      // Wait for ICE gathering to complete
+      await peer.waitForIceGathering(10000);
+
+      const answer = {
+        sessionId,
+        sdp: answerSdp,
+        candidates: peer.getICECandidates()
+      };
+
       // Send answer back to coordinator
       await this.udpClient.sendAnswer(answer);
     } catch (error) {

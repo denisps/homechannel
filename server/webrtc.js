@@ -92,6 +92,8 @@ export class WebRTCPeer {
     this.serviceRouter = options.serviceRouter || null;
     this.localDescription = null; // Store local description for node-datachannel
     this.localDescriptionPromise = null; // Promise for waiting on local description
+    this.iceGatheringComplete = false;
+    this._iceGatheringResolve = null;
   }
 
   /**
@@ -184,11 +186,19 @@ export class WebRTCPeer {
    * Setup W3C-compliant handlers (werift, wrtc)
    */
   _setupW3CHandlers() {
+    this.iceGatheringComplete = false;
     this.pc.onicecandidate = (event) => {
       if (event.candidate) {
         this.iceCandidates.push(event.candidate);
         if (this.handlers.has('icecandidate')) {
           this.handlers.get('icecandidate')(event.candidate);
+        }
+      } else {
+        // null candidate signals ICE gathering complete
+        this.iceGatheringComplete = true;
+        if (this._iceGatheringResolve) {
+          this._iceGatheringResolve();
+          this._iceGatheringResolve = null;
         }
       }
     };
@@ -786,6 +796,31 @@ export class WebRTCPeer {
   }
 
   /**
+   * Wait for ICE gathering to complete or timeout
+   * @param {number} timeoutMs - Max wait time in milliseconds (default 10000)
+   * @returns {Promise<void>}
+   */
+  async waitForIceGathering(timeoutMs = 10000) {
+    if (this.libraryName === 'node-datachannel') {
+      // node-datachannel bundles ICE candidates in the SDP; brief wait is sufficient
+      await new Promise(resolve => setTimeout(resolve, 500));
+      return;
+    }
+
+    if (this.iceGatheringComplete) {
+      return;
+    }
+
+    await new Promise((resolve) => {
+      this._iceGatheringResolve = resolve;
+      setTimeout(() => {
+        this._iceGatheringResolve = null;
+        resolve();
+      }, timeoutMs);
+    });
+  }
+
+  /**
    * Close peer connection
    */
   close() {
@@ -793,6 +828,8 @@ export class WebRTCPeer {
       this.pc.close();
     }
     this.iceCandidates = [];
+    this.iceGatheringComplete = false;
+    this._iceGatheringResolve = null;
     this.dataChannels.clear();
   }
 }

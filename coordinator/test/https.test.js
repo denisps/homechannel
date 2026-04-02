@@ -326,8 +326,10 @@ describe('HTTPS Server', () => {
         candidates: [{ candidate: 'test-answer-candidate' }]
       };
       const serverSignature = 'test-signature';
+      const serverPublicKey = 'test-server-public-key';
+      const answerTimestamp = Date.now();
       
-      httpsServer.storeServerAnswer(sessionId, serverAnswer, serverSignature, 'ed448');
+      httpsServer.storeServerAnswer(sessionId, serverPublicKey, serverAnswer, serverSignature, 'ed448', answerTimestamp);
       
       // Poll for answer
       const pollResponse = await makeRequest('POST', '/api/poll', {
@@ -337,6 +339,9 @@ describe('HTTPS Server', () => {
       
       assert.strictEqual(pollResponse.status, 200);
       assert.strictEqual(pollResponse.data.success, true);
+      assert.strictEqual(pollResponse.data.serverPublicKey, serverPublicKey);
+      assert.strictEqual(pollResponse.data.sessionId, sessionId);
+      assert.strictEqual(pollResponse.data.timestamp, answerTimestamp);
       assert.deepStrictEqual(pollResponse.data.payload, serverAnswer);
       assert.strictEqual(pollResponse.data.serverSignature, serverSignature);
     });

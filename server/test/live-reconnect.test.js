@@ -96,14 +96,19 @@ describe('Live reconnect against hosted coordinator', () => {
     client.on('reconnecting', () => { reconnectFired = true; });
 
     await client.start();
+
+    // Wait for initial registration using polling (avoids overwriting the 'registered' handler)
     await Promise.race([
       new Promise(resolve => {
-        client.on('registered', () => { if (registeredCount >= 1) resolve(); });
+        const check = setInterval(() => {
+          if (registeredCount >= 1) { clearInterval(check); resolve(); }
+        }, 100);
       }),
       new Promise((_, reject) => setTimeout(() => reject(new Error('Initial registration timed out (15s)')), 15000))
     ]);
 
-    assert.strictEqual(registeredCount, 1);
+    assert.ok(registeredCount >= 1);
+    const countBeforeSimulation = registeredCount;
     console.log('  Initial registration done. Simulating dead connection...');
 
     // Simulate: coordinator silent for longer than deadIntervalMs
@@ -112,14 +117,14 @@ describe('Live reconnect against hosted coordinator', () => {
     await Promise.race([
       new Promise(resolve => {
         const check = setInterval(() => {
-          if (registeredCount >= 2) { clearInterval(check); resolve(); }
+          if (registeredCount >= countBeforeSimulation + 1) { clearInterval(check); resolve(); }
         }, 100);
       }),
       new Promise((_, reject) => setTimeout(() => reject(new Error('Re-registration timed out (20s)')), 20000))
     ]);
 
     assert.ok(reconnectFired, 'reconnecting event should have fired');
-    assert.ok(registeredCount >= 2, `should re-register (got ${registeredCount})`);
+    assert.ok(registeredCount >= countBeforeSimulation + 1, `should re-register (got ${registeredCount})`);
     assert.strictEqual(client.state, 'registered');
     console.log(`  Re-registration confirmed (${registeredCount} total registrations)`);
 

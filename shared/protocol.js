@@ -1,4 +1,5 @@
 import dgram from 'dgram';
+import dns from 'dns';
 import {
   generateECDHKeyPair,
   computeECDHSecret,
@@ -89,6 +90,8 @@ export class UDPClient {
   constructor(coordinatorHost, coordinatorPort, serverKeys, options = {}) {
     this.coordinatorHost = coordinatorHost;
     this.coordinatorPort = coordinatorPort;
+    // Resolved IPv4 address u2014 populated by start() to avoid per-send DNS resolution
+    this.coordinatorIp = null;
     this.serverKeys = serverKeys;
     this.socket = null;
     
@@ -134,7 +137,32 @@ export class UDPClient {
   /**
    * Start UDP client and initiate registration
    */
+  /**
+   * Resolve coordinatorHost to an IPv4 address and cache it.
+   * Re-resolves on every call so a reconnect after network change gets a fresh IP.
+   */
+  async _resolveCoordinatorIp() {
+    return new Promise((resolve, reject) => {
+      dns.lookup(this.coordinatorHost, { family: 4 }, (err, address) => {
+        if (err) {
+          console.error(`DNS lookup failed for ${this.coordinatorHost}:`, err.message);
+          // Fall back to the hostname itself and let the OS try
+          this.coordinatorIp = this.coordinatorHost;
+        } else {
+          this.coordinatorIp = address;
+          if (this.verbosity >= 2) {
+            console.log(`Resolved ${this.coordinatorHost} → ${address}`);
+          }
+        }
+        resolve(this.coordinatorIp);
+      });
+    });
+  }
+
   async start() {
+    // Pre-resolve to IPv4 to avoid per-send DNS and IPv6-over-udp4 EINVAL errors
+    await this._resolveCoordinatorIp();
+
     return new Promise((resolve, reject) => {
       this.socket = dgram.createSocket('udp4');
 
@@ -197,7 +225,7 @@ export class UDPClient {
       const payload = encodeHello(this.serverTag);
       const message = buildUDPMessage(MESSAGE_TYPES.HELLO, payload);
 
-      this.socket.send(message, this.coordinatorPort, this.coordinatorHost, (err) => {
+      this.socket.send(message, this.coordinatorPort, this.coordinatorIp, (err) => {
         if (err) {
           console.error('Error sending HELLO:', err);
         }
@@ -273,6 +301,9 @@ export class UDPClient {
           // lastReceivedMs already updated above; nothing more to do
           if (this.verbosity >= 2) console.log('Received PONG from coordinator');
           break;
+        case MESSAGE_TYPES.OFFER:
+          this.handleOfferFromCoordinator(payload);
+          break;
         case MESSAGE_TYPES.ERROR:
           this.handleError(payload);
           break;
@@ -334,7 +365,7 @@ export class UDPClient {
       // Send Phase 3: ECDH init
       const message = buildUDPMessage(MESSAGE_TYPES.ECDH_INIT, payload);
       
-      this.socket.send(message, this.coordinatorPort, this.coordinatorHost, (err) => {
+      this.socket.send(message, this.coordinatorPort, this.coordinatorIp, (err) => {
         if (err) {
           console.error('Error sending ECDH init:', err);
           throw err;
@@ -453,7 +484,7 @@ export class UDPClient {
       // Send Phase 3: Registration
       const message = buildUDPMessage(MESSAGE_TYPES.REGISTER, encryptedPayload);
 
-      this.socket.send(message, this.coordinatorPort, this.coordinatorHost, (err) => {
+      this.socket.send(message, this.coordinatorPort, this.coordinatorIp, (err) => {
         if (err) {
           console.error('Error sending registration:', err);
           throw err;
@@ -566,7 +597,7 @@ export class UDPClient {
       // Ping has no payload - just version and type bytes
       const message = buildUDPMessage(MESSAGE_TYPES.PING, Buffer.alloc(0));
 
-      this.socket.send(message, this.coordinatorPort, this.coordinatorHost, (err) => {
+      this.socket.send(message, this.coordinatorPort, this.coordinatorIp, (err) => {
         if (err) {
           console.error('Error sending ping:', err);
         }
@@ -602,7 +633,7 @@ export class UDPClient {
       
       const udpMessage = buildUDPMessage(MESSAGE_TYPES.HEARTBEAT, encryptedPayload);
 
-      this.socket.send(udpMessage, this.coordinatorPort, this.coordinatorHost, (err) => {
+      this.socket.send(udpMessage, this.coordinatorPort, this.coordinatorIp, (err) => {
         if (err) {
           console.error('Error sending heartbeat:', err);
         } else {
@@ -717,6 +748,36 @@ export class UDPClient {
   }
 
   /**
+   * Handle OFFER message from coordinator (WebRTC offer relayed from client)
+   */
+  handleOfferFromCoordinator(encryptedPayload) {
+    if (!this.registered || !this.aesKey) {
+      console.error('Received OFFER but not registered');
+      return;
+    }
+
+    try {
+      const message = decryptAES(encryptedPayload, this.aesKey);
+      const { sessionId, payload } = message;
+
+      if (!sessionId || !payload) {
+        console.error('Invalid OFFER message: missing sessionId or payload');
+        return;
+      }
+
+      if (this.verbosity >= 1) {
+        console.log(`Received WebRTC offer for session ${sessionId}`);
+      }
+
+      if (this.handlers.has('offer')) {
+        this.handlers.get('offer')({ sessionId, payload });
+      }
+    } catch (error) {
+      console.error('Error handling OFFER from coordinator:', error.message);
+    }
+  }
+
+  /**
    * Schedule a reconnection attempt with exponential backoff.
    * Retries indefinitely until stop() is called.
    */
@@ -737,6 +798,8 @@ export class UDPClient {
     this._reconnectTimer = setTimeout(async () => {
       this._reconnectTimer = null;
       if (!this.socket) return; // stopped while waiting
+      // Re-resolve hostname to IPv4 in case IP changed (VPN reconnect, DNS update)
+      await this._resolveCoordinatorIp();
       this._helloRetryCount = 0;
       await this._sendHello();
     }, delay);
@@ -785,7 +848,7 @@ export class UDPClient {
 
       const message = buildUDPMessage(MESSAGE_TYPES.ANSWER, encryptedPayload);
 
-      this.socket.send(message, this.coordinatorPort, this.coordinatorHost, (err) => {
+      this.socket.send(message, this.coordinatorPort, this.coordinatorIp, (err) => {
         if (err) {
           console.error('Error sending answer:', err);
           throw err;

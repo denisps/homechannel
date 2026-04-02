@@ -400,6 +400,9 @@ export class HTTPSServer {
       if (session.answer) {
         const response = {
           success: true,
+          serverPublicKey: session.answer.serverPublicKey,
+          sessionId,
+          timestamp: session.answer.timestamp,
           payload: session.answer.payload,
           serverSignature: session.answer.signature,
           serverSignatureAlgorithm: session.answer.signatureAlgorithm
@@ -428,10 +431,10 @@ export class HTTPSServer {
    * Store server answer for a session
    * Called by UDP server when server responds
    */
-  storeServerAnswer(sessionId, payload, signature, signatureAlgorithm) {
+  storeServerAnswer(sessionId, serverPublicKey, payload, signature, signatureAlgorithm, timestamp) {
     const session = this.sessions.get(sessionId);
     if (session) {
-      session.answer = { payload, signature, signatureAlgorithm };
+      session.answer = { serverPublicKey, payload, signature, signatureAlgorithm, timestamp };
     }
   }
 

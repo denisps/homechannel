@@ -124,9 +124,11 @@ class Coordinator {
       if (this.httpsServer) {
         this.httpsServer.storeServerAnswer(
           sessionId,
+          answerData.serverPublicKey,
           answerData.payload,
           answerData.signature,
-          answerData.signatureAlgorithm
+          answerData.signatureAlgorithm,
+          answerData.timestamp
         );
       }
     });

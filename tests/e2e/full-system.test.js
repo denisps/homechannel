@@ -33,9 +33,11 @@ describe('E2E: Coordinator and Server Integration', () => {
   let useTLS = false;
   
   before(async () => {
-    // Create temporary test config directory
+    // Create temporary test config directory (used as HOME so processes use isolated configs)
     testConfigDir = path.join('/tmp', `homechannel-e2e-${Date.now()}`);
-    await fs.mkdir(testConfigDir, { recursive: true });
+    // The processes will resolve ~/.config/homechannel/ against our fake HOME
+    const hcConfigDir = path.join(testConfigDir, '.config', 'homechannel');
+    await fs.mkdir(hcConfigDir, { recursive: true });
     
     // Generate TLS certificates if OpenSSL is available
     let tlsConfig = {};
@@ -56,6 +58,7 @@ describe('E2E: Coordinator and Server Integration', () => {
     }
     
     // Create coordinator config (with TLS if available)
+    // privateKeyPath/publicKeyPath are injected by the process from HC_CONFIG_DIR, not from file
     const coordinatorConfig = {
       udp: { port: 13478 },
       https: { 
@@ -63,51 +66,46 @@ describe('E2E: Coordinator and Server Integration', () => {
         host: '0.0.0.0',
         ...tlsConfig
       },
-      privateKeyPath: path.join(testConfigDir, 'coordinator_private.pem'),
-      publicKeyPath: path.join(testConfigDir, 'coordinator_public.pem'),
       serverTimeout: 300000,
       maxServers: 100
     };
     
+    // Write config to the location the coordinator will read from (HOME/.config/homechannel/coordinator.json)
     await fs.writeFile(
-      path.join(testConfigDir, 'coordinator-config.json'),
+      path.join(testConfigDir, '.config', 'homechannel', 'coordinator.json'),
       JSON.stringify(coordinatorConfig, null, 2)
     );
     
     // Create server config
+    // privateKeyPath/publicKeyPath are injected by the process from HC_CONFIG_DIR, not from file
     const serverConfig = {
       coordinator: {
         host: 'localhost',
         port: 13478
       },
-      privateKeyPath: path.join(testConfigDir, 'server_private.pem'),
-      publicKeyPath: path.join(testConfigDir, 'server_public.pem'),
       enabledServices: ['files'],
       files: {
         allowedDirectories: [testConfigDir],
         maxFileSize: 10485760
-      }
+      },
+      password: 'test-password'
     };
     
+    // Write config to the location the server will read from (HOME/.config/homechannel/server.json)
     await fs.writeFile(
-      path.join(testConfigDir, 'server-config.json'),
+      path.join(testConfigDir, '.config', 'homechannel', 'server.json'),
       JSON.stringify(serverConfig, null, 2)
     );
     
     // Start coordinator
     const coordinatorDir = path.join(projectRoot, 'coordinator');
     
-    // Copy config to coordinator directory
-    await fs.writeFile(
-      path.join(coordinatorDir, 'config.json'),
-      JSON.stringify(coordinatorConfig, null, 2)
-    );
-    
     coordinatorProc = spawn('node', [
       'index.js'
     ], {
       cwd: coordinatorDir,
-      stdio: ['ignore', 'pipe', 'pipe']
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, HOME: testConfigDir }
     });
     
     coordinatorProc.stdout.on('data', (data) => {
@@ -117,8 +115,8 @@ describe('E2E: Coordinator and Server Integration', () => {
       coordinatorOutput += data.toString();
     });
     
-    // Wait for coordinator to start
-    await sleep(3000);
+    // Wait for coordinator to start (key generation can take a few seconds for Ed448)
+    await sleep(8000);
     
     // Check if coordinator started successfully
     if (!coordinatorOutput.includes('Coordinator started')) {
@@ -128,17 +126,12 @@ describe('E2E: Coordinator and Server Integration', () => {
     // Start server
     const serverDir = path.join(projectRoot, 'server');
     
-    // Copy config to server directory
-    await fs.writeFile(
-      path.join(serverDir, 'config.json'),
-      JSON.stringify(serverConfig, null, 2)
-    );
-    
     serverProc = spawn('node', [
       'index.js'
     ], {
       cwd: serverDir,
-      stdio: ['ignore', 'pipe', 'pipe']
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, HOME: testConfigDir }
     });
     
     serverProc.stdout.on('data', (data) => {
@@ -148,8 +141,8 @@ describe('E2E: Coordinator and Server Integration', () => {
       serverOutput += data.toString();
     });
     
-    // Wait for server to register
-    await sleep(5000);
+    // Wait for server to register (key generation + HELLO/ECDH/REGISTER round trips)
+    await sleep(10000);
     
     // Check if server registered successfully  
     if (!serverOutput.includes('Registration acknowledged')) {
@@ -176,19 +169,7 @@ describe('E2E: Coordinator and Server Integration', () => {
     }
     
     // Remove test config files
-    try {
-      await fs.unlink(path.join(projectRoot, 'coordinator', 'config.json'));
-    } catch (err) {
-      // Ignore errors
-    }
-    
-    try {
-      await fs.unlink(path.join(projectRoot, 'server', 'config.json'));
-    } catch (err) {
-      // Ignore errors
-    }
-    
-    // Remove test config directory
+    // Remove test config directory (which was used as HOME)
     try {
       await fs.rm(testConfigDir, { recursive: true, force: true });
     } catch (err) {

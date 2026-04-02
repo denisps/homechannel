@@ -782,7 +782,7 @@ class Client {
 // ============================================================================
 
 // ES module exports
-//export { Client, verifySignature, hashChallengeAnswer };
+export { Client, verifySignature, hashChallengeAnswer };
 
 // Browser global exports (for script tag usage)
 if (typeof window !== 'undefined') {
