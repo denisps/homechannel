@@ -118,6 +118,10 @@ export class UDPClient {
     this._helloRetryCount = 0;
     this._helloRetryTimer = null;
 
+    // Fixed local UDP port (0 = OS-assigned random port).
+    // Setting a fixed port keeps the NAT mapping stable across reconnects and process restarts.
+    this.localPort = options.localPort || 0;
+
     // Reconnect / dead-connection tracking
     this.reconnectDelayMs = options.reconnectDelayMs || 5000;       // initial backoff
     this.maxReconnectDelayMs = options.maxReconnectDelayMs || 60000; // max backoff
@@ -196,7 +200,7 @@ export class UDPClient {
           });
       });
 
-      this.socket.bind(0); // Bind to any available port
+      this.socket.bind(this.localPort); // Use configured port, or 0 for OS-assigned
     });
   }
 
@@ -736,6 +740,13 @@ export class UDPClient {
 
     this.state = 'disconnected';
     this.registered = false;
+
+    // Cancel any pending HELLO retry — prevents a second concurrent HELLO sequence
+    // from running alongside the one we are about to schedule via _scheduleReconnect.
+    if (this._helloRetryTimer) {
+      clearTimeout(this._helloRetryTimer);
+      this._helloRetryTimer = null;
+    }
     
     // Stop keepalive and heartbeat
     if (this.keepaliveInterval) {

@@ -24,6 +24,7 @@ const _DEFAULT_SERVER_CONFIG = {
     keyAgreementCurve: 'x448'
   },
   password: 'change-me',
+  // udpLocalPort: 0 (uncomment and set to a fixed port to keep NAT mapping stable)
   apps: [],
   services: {}
 };
@@ -120,6 +121,7 @@ class Server {
         keyAgreementCurve,
         helloMaxRetries: 10000,
         signatureAlgorithm,
+        localPort: this.config.udpLocalPort || 0,
       }
     );
 
