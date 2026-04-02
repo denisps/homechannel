@@ -204,7 +204,7 @@
             type: 'response',
             requestId,
             data: result
-          }, event.origin);
+          }, event.origin === 'null' ? '*' : event.origin);
           
         } catch (error) {
           // Send error response
@@ -212,7 +212,7 @@
             type: 'response',
             requestId,
             error: error.message
-          }, event.origin);
+          }, event.origin === 'null' ? '*' : event.origin);
           
           showError(error.message);
         }
