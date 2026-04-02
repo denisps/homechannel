@@ -7,6 +7,27 @@ import { loadKeys, generateSigningKeyPair, saveKeys, normalizeSignatureAlgorithm
 import { normalizeKeyAgreementCurve } from '../shared/crypto.js';
 import { ServiceRouter } from './services/index.js';
 
+// Config and key paths — always under ~/.config/homechannel/
+const _CONFIG_DIR = path.join(process.env.HOME || process.env.USERPROFILE || '/root', '.config', 'homechannel');
+const _CONFIG_PATH = path.join(_CONFIG_DIR, 'server.json');
+const _PRIVATE_KEY_PATH = path.join(_CONFIG_DIR, 'server.key');
+const _PUBLIC_KEY_PATH = path.join(_CONFIG_DIR, 'server.pub');
+const _FAILOVER_PATH = path.join(_CONFIG_DIR, 'failover-coordinator.json');
+
+const _DEFAULT_SERVER_CONFIG = {
+  coordinator: {
+    host: 'coordinator.example.com',
+    port: 3478
+  },
+  crypto: {
+    signatureAlgorithm: 'ed448',
+    keyAgreementCurve: 'x448'
+  },
+  password: 'change-me',
+  apps: [],
+  services: {}
+};
+
 /**
  * HomeChannel Server
  * Runs on home network, connects to coordinator via UDP
@@ -118,7 +139,7 @@ class Server {
    * Load failover coordinator from disk
    */
   async loadFailoverCoordinator() {
-    const failoverPath = 'failover-coordinator.json';
+    const failoverPath = this.config._failoverPath || path.join(_CONFIG_DIR, 'failover-coordinator.json');
     
     try {
       const data = await fsPromises.readFile(failoverPath, 'utf8');
@@ -136,7 +157,7 @@ class Server {
    * Save failover coordinator to disk
    */
   async saveFailoverCoordinator() {
-    const failoverPath = 'failover-coordinator.json';
+    const failoverPath = this.config._failoverPath || path.join(_CONFIG_DIR, 'failover-coordinator.json');
     
     try {
       if (this.failoverCoordinator) {
@@ -282,36 +303,52 @@ class Server {
 
 // Main execution
 if (import.meta.url === `file://${process.argv[1]}`) {
-  // Load config
-  let config;
-  try {
-    const configData = await fsPromises.readFile('./config.json', 'utf8');
-    config = JSON.parse(configData);
-  } catch (error) {
-    console.error('Error loading config:', error);
-    console.error('Make sure config.json exists in the server directory');
-    process.exit(1);
-  }
+  (async () => {
+    let config;
+    try {
+      await fsPromises.mkdir(_CONFIG_DIR, { recursive: true });
+      try {
+        const raw = await fsPromises.readFile(_CONFIG_PATH, 'utf8');
+        config = JSON.parse(raw);
+      } catch (err) {
+        if (err.code === 'ENOENT') {
+          console.log(`No config found. Creating default at ${_CONFIG_PATH}`);
+          await fsPromises.writeFile(_CONFIG_PATH, JSON.stringify(_DEFAULT_SERVER_CONFIG, null, 2), { mode: 0o600 });
+          config = JSON.parse(JSON.stringify(_DEFAULT_SERVER_CONFIG));
+        } else {
+          throw err;
+        }
+      }
+    } catch (error) {
+      console.error('Error loading config:', error);
+      process.exit(1);
+    }
 
-  const server = new Server(config);
-  
-  server.start().catch((error) => {
-    console.error('Failed to start server:', error);
-    process.exit(1);
-  });
+    // Inject key and failover paths — not stored in config file
+    config.privateKeyPath = _PRIVATE_KEY_PATH;
+    config.publicKeyPath = _PUBLIC_KEY_PATH;
+    config._failoverPath = _FAILOVER_PATH;
 
-  // Handle graceful shutdown
-  process.on('SIGINT', async () => {
-    console.log('\nShutting down...');
-    await server.stop();
-    process.exit(0);
-  });
+    const server = new Server(config);
 
-  process.on('SIGTERM', async () => {
-    console.log('Terminating...');
-    await server.stop();
-    process.exit(0);
-  });
+    server.start().catch((error) => {
+      console.error('Failed to start server:', error);
+      process.exit(1);
+    });
+
+    // Handle graceful shutdown
+    process.on('SIGINT', async () => {
+      console.log('\nShutting down...');
+      await server.stop();
+      process.exit(0);
+    });
+
+    process.on('SIGTERM', async () => {
+      console.log('Terminating...');
+      await server.stop();
+      process.exit(0);
+    });
+  })();
 }
 
 export { Server };

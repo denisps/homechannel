@@ -1,9 +1,32 @@
-import fs from 'fs';
+import { promises as fsPromises } from 'fs';
+import path from 'path';
 import { ServerRegistry } from './registry.js';
 import { UDPServer } from '../shared/protocol.js';
 import { loadKeys, generateSigningKeyPair, saveKeys, normalizeSignatureAlgorithm, loadTLSCertificates } from '../shared/keys.js';
 import { normalizeKeyAgreementCurve } from '../shared/crypto.js';
 import { HTTPSServer } from './https.js';
+
+// Config and key paths — always under ~/.config/homechannel/
+const _CONFIG_DIR = path.join(process.env.HOME || process.env.USERPROFILE || '/root', '.config', 'homechannel');
+const _CONFIG_PATH = path.join(_CONFIG_DIR, 'coordinator.json');
+const _PRIVATE_KEY_PATH = path.join(_CONFIG_DIR, 'coordinator.key');
+const _PUBLIC_KEY_PATH = path.join(_CONFIG_DIR, 'coordinator.pub');
+
+const _DEFAULT_COORDINATOR_CONFIG = {
+  udp: {
+    port: 3478
+  },
+  https: {
+    port: 8443,
+    host: '0.0.0.0'
+  },
+  crypto: {
+    signatureAlgorithm: 'ed448',
+    keyAgreementCurve: 'x448'
+  },
+  serverTimeout: 120000,
+  maxServers: 100
+};
 
 /**
  * HomeChannel Coordinator
@@ -150,36 +173,52 @@ class Coordinator {
 
 // Main execution
 if (import.meta.url === `file://${process.argv[1]}`) {
-  // Load config
-  let config;
-  try {
-    config = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
-  } catch (error) {
-    console.error('Error loading config:', error);
-    console.error('Make sure config.json exists in the coordinator directory');
-    process.exit(1);
-  }
+  (async () => {
+    let config;
+    try {
+      await fsPromises.mkdir(_CONFIG_DIR, { recursive: true });
+      try {
+        const raw = await fsPromises.readFile(_CONFIG_PATH, 'utf8');
+        config = JSON.parse(raw);
+      } catch (err) {
+        if (err.code === 'ENOENT') {
+          console.log(`No config found. Creating default at ${_CONFIG_PATH}`);
+          await fsPromises.writeFile(_CONFIG_PATH, JSON.stringify(_DEFAULT_COORDINATOR_CONFIG, null, 2), { mode: 0o600 });
+          config = JSON.parse(JSON.stringify(_DEFAULT_COORDINATOR_CONFIG));
+        } else {
+          throw err;
+        }
+      }
+    } catch (error) {
+      console.error('Error loading config:', error);
+      process.exit(1);
+    }
 
-  const coordinator = new Coordinator(config);
+    // Inject key paths — not stored in config file
+    config.privateKeyPath = _PRIVATE_KEY_PATH;
+    config.publicKeyPath = _PUBLIC_KEY_PATH;
 
-  // Handle shutdown gracefully
-  process.on('SIGINT', async () => {
-    console.log('\nReceived SIGINT, shutting down...');
-    await coordinator.stop();
-    process.exit(0);
-  });
+    const coordinator = new Coordinator(config);
 
-  process.on('SIGTERM', async () => {
-    console.log('\nReceived SIGTERM, shutting down...');
-    await coordinator.stop();
-    process.exit(0);
-  });
+    // Handle shutdown gracefully
+    process.on('SIGINT', async () => {
+      console.log('\nReceived SIGINT, shutting down...');
+      await coordinator.stop();
+      process.exit(0);
+    });
 
-  // Start coordinator
-  coordinator.start().catch((error) => {
-    console.error('Error starting coordinator:', error);
-    process.exit(1);
-  });
+    process.on('SIGTERM', async () => {
+      console.log('\nReceived SIGTERM, shutting down...');
+      await coordinator.stop();
+      process.exit(0);
+    });
+
+    // Start coordinator
+    coordinator.start().catch((error) => {
+      console.error('Error starting coordinator:', error);
+      process.exit(1);
+    });
+  })();
 }
 
 export { Coordinator };

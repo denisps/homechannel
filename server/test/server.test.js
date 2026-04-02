@@ -39,7 +39,7 @@ import {
   signData
 } from '../../shared/crypto.js';
 import { generateSigningKeyPair } from '../../shared/keys.js';
-import { PROTOCOL_VERSION, MESSAGE_TYPES } from '../../shared/protocol.js';
+import { PROTOCOL_VERSION, MESSAGE_TYPES, buildUDPMessage } from '../../shared/protocol.js';
 
 /**
  * Mock coordinator for testing
@@ -105,6 +105,11 @@ class MockCoordinator {
           break;
         case MESSAGE_TYPES.PING:
           console.log('Received ping');
+          // Send PONG back so the client's dead-connection detector stays quiet
+          {
+            const pong = buildUDPMessage(MESSAGE_TYPES.PONG, Buffer.alloc(0));
+            this.socket.send(pong, rinfo.port, rinfo.address);
+          }
           break;
         case MESSAGE_TYPES.HEARTBEAT:
           this.handleHeartbeat(payload, ipPort, rinfo);
@@ -432,6 +437,78 @@ describe('Server UDP Module', () => {
 
     // Challenge should have been refreshed
     assert.notStrictEqual(client.challenge, challengeAfterRegistration, 'Challenge should be refreshed after heartbeat');
+
+    await client.stop();
+  });
+
+  test('UDPClient should reconnect when dead connection detected', async () => {
+    // Use a keepalive of 100ms and dead interval of 250ms so detection is fast
+    const client = new UDPClient('127.0.0.1', coordinator.socket.address().port, serverKeys, {
+      coordinatorPublicKey: coordinator.coordinatorKeys.publicKey,
+      keepaliveIntervalMs: 100,
+      heartbeatIntervalMs: 60000,
+      deadIntervalMs: 250,
+      reconnectDelayMs: 100,
+      helloMaxRetries: 1,
+      helloTimeoutMs: 200
+    });
+
+    let reconnectCount = 0;
+    client.on('reconnecting', () => { reconnectCount++; });
+
+    await client.start();
+    await withTimeout(
+      new Promise(resolve => client.on('registered', resolve)),
+      2000,
+      'Initial registration timed out'
+    );
+    assert.strictEqual(client.state, 'registered');
+
+    // Artificially age lastReceivedMs to simulate a stale connection
+    client.lastReceivedMs = Date.now() - 1000;
+
+    // Wait for dead-connection detection to fire
+    await new Promise(resolve => setTimeout(resolve, 400));
+
+    assert.ok(reconnectCount >= 1, 'Should have attempted reconnect at least once');
+    // State should be registered again after a successful reconnect (fast mock coordinator)
+    // OR still reconnecting — either way reconnectCount > 0 is sufficient proof
+    assert.ok(['registered', 'registering', 'disconnected'].includes(client.state));
+
+    await client.stop();
+  });
+
+  test('UDPClient should reconnect after receiving ERROR from coordinator', async () => {
+    const client = new UDPClient('127.0.0.1', coordinator.socket.address().port, serverKeys, {
+      coordinatorPublicKey: coordinator.coordinatorKeys.publicKey,
+      reconnectDelayMs: 100,
+      helloMaxRetries: 1,
+      helloTimeoutMs: 200
+    });
+
+    let reconnectFired = false;
+    client.on('reconnecting', () => { reconnectFired = true; });
+
+    await client.start();
+    await withTimeout(
+      new Promise(resolve => client.on('registered', resolve)),
+      2000,
+      'Initial registration timed out'
+    );
+    assert.strictEqual(client.state, 'registered');
+
+    // Simulate receiving an ERROR message from coordinator
+    const { buildUDPMessage: buildMsg, PROTOCOL_VERSION: PV, MESSAGE_TYPES: MT } = await import('../../shared/protocol.js');
+    const errorMsg = buildMsg(MT.ERROR, Buffer.alloc(0));
+    // Deliver it directly through handleMessage
+    client.handleMessage(errorMsg, { address: '127.0.0.1', port: coordinator.socket.address().port });
+
+    assert.strictEqual(client.state, 'disconnected');
+    assert.strictEqual(client.registered, false);
+
+    // Wait for reconnect to be scheduled
+    await new Promise(resolve => setTimeout(resolve, 200));
+    assert.ok(reconnectFired, 'Should have emitted reconnecting event');
 
     await client.stop();
   });

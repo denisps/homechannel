@@ -37,6 +37,7 @@ export const MESSAGE_TYPES = Object.freeze({
   ANSWER: 0x08,         // SDP answer
   MIGRATE: 0x09,        // Coordinator migration (redirect to new coordinator)
   OFFER: 0x0A,          // SDP offer (coordinator to server)
+  PONG: 0x0B,           // Keepalive reply (coordinator → server)
   ERROR: 0xFF           // Error response (not sent for HELLO messages)
 });
 
@@ -51,6 +52,7 @@ export const MESSAGE_TYPE_NAMES = Object.freeze({
   [MESSAGE_TYPES.ANSWER]: 'answer',
   [MESSAGE_TYPES.MIGRATE]: 'migrate',
   [MESSAGE_TYPES.OFFER]: 'offer',
+  [MESSAGE_TYPES.PONG]: 'pong',
   [MESSAGE_TYPES.ERROR]: 'error'
 });
 
@@ -112,6 +114,18 @@ export class UDPClient {
     this.helloMaxRetries = options.helloMaxRetries !== undefined ? options.helloMaxRetries : 5;
     this._helloRetryCount = 0;
     this._helloRetryTimer = null;
+
+    // Reconnect / dead-connection tracking
+    this.reconnectDelayMs = options.reconnectDelayMs || 5000;       // initial backoff
+    this.maxReconnectDelayMs = options.maxReconnectDelayMs || 60000; // max backoff
+    this._currentReconnectDelay = this.reconnectDelayMs;
+    this._reconnectTimer = null;
+    this.lastReceivedMs = null; // timestamp of last message received from coordinator
+    // Dead-interval: time without a PONG before triggering reconnect
+    // Default = 3× keepalive interval so three consecutive missed PONGs trigger reconnect
+    this.deadIntervalMs = options.deadIntervalMs !== undefined
+      ? options.deadIntervalMs
+      : (this.keepaliveIntervalMs * 3);
     
     // Verbosity: 0=silent (errors only), 1=normal (important events), 2=verbose (all messages with details)
     this.verbosity = options.verbosity !== undefined ? options.verbosity : 1;
@@ -208,13 +222,9 @@ export class UDPClient {
           await this._sendHello();
         } else {
           this.state = 'disconnected';
-          const err = new Error(
-            `Registration failed: no response from coordinator after ${this.helloMaxRetries + 1} attempts`
-          );
-          console.error(err.message);
-          if (this.handlers.has('error')) {
-            this.handlers.get('error')(err);
-          }
+          const msg = `Registration failed: no response from coordinator after ${this.helloMaxRetries + 1} attempts`;
+          console.error(msg);
+          this._scheduleReconnect();
         }
       }, this.helloTimeoutMs);
     } catch (error) {
@@ -240,6 +250,9 @@ export class UDPClient {
         console.log(`Received ${typeName} message`);
       }
 
+      // Track last time we heard from the coordinator
+      this.lastReceivedMs = Date.now();
+
       switch (messageType) {
         case MESSAGE_TYPES.HELLO_ACK:
           this.handleHelloAck(payload);
@@ -255,6 +268,10 @@ export class UDPClient {
           break;
         case MESSAGE_TYPES.MIGRATE:
           this.handleMigrate(payload);
+          break;
+        case MESSAGE_TYPES.PONG:
+          // lastReceivedMs already updated above; nothing more to do
+          if (this.verbosity >= 2) console.log('Received PONG from coordinator');
           break;
         case MESSAGE_TYPES.ERROR:
           this.handleError(payload);
@@ -468,6 +485,8 @@ export class UDPClient {
         // Registration complete - start keepalive
         this.state = 'registered';
         this.registered = true;
+        // Reset reconnect backoff on successful registration
+        this._currentReconnectDelay = this.reconnectDelayMs;
         this.startKeepalive();
         
         // Emit registration complete event
@@ -477,10 +496,12 @@ export class UDPClient {
       } else {
         console.error('Invalid registration acknowledgment');
         this.state = 'disconnected';
+        this._scheduleReconnect();
       }
     } catch (error) {
       console.error('Error handling registration ack:', error.message);
       this.state = 'disconnected';
+      this._scheduleReconnect();
     }
   }
 
@@ -491,9 +512,33 @@ export class UDPClient {
     if (this.keepaliveInterval) clearInterval(this.keepaliveInterval);
     
     this.keepaliveInterval = setInterval(() => {
-      if (this.registered && this.aesKey) {
-        this.sendPing();
+      if (!this.registered || !this.aesKey) return;
+
+      // Dead-connection detection: if no PONG received for deadIntervalMs, reconnect
+      if (this.deadIntervalMs && this.lastReceivedMs) {
+        const elapsed = Date.now() - this.lastReceivedMs;
+        if (elapsed > this.deadIntervalMs) {
+          if (this.verbosity >= 1) {
+            const secs = elapsed >= 1000 ? `${Math.round(elapsed / 1000)}s` : `${elapsed}ms`;
+            console.warn(`No message from coordinator for ${secs} — reconnecting...`);
+          }
+          clearInterval(this.keepaliveInterval);
+          this.keepaliveInterval = null;
+          if (this.heartbeatInterval) {
+            clearInterval(this.heartbeatInterval);
+            this.heartbeatInterval = null;
+          }
+          this.state = 'disconnected';
+          this.registered = false;
+          if (this.handlers.has('disconnected')) {
+            this.handlers.get('disconnected')();
+          }
+          this._scheduleReconnect();
+          return;
+        }
       }
+
+      this.sendPing();
     }, this.keepaliveIntervalMs);
     
     // Also start heartbeat interval
@@ -656,10 +701,45 @@ export class UDPClient {
     // Stop keepalive and heartbeat
     if (this.keepaliveInterval) {
       clearInterval(this.keepaliveInterval);
+      this.keepaliveInterval = null;
     }
     if (this.heartbeatInterval) {
       clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
     }
+
+    if (this.handlers.has('disconnected')) {
+      this.handlers.get('disconnected')();
+    }
+
+    // Always reconnect — indefinitely
+    this._scheduleReconnect();
+  }
+
+  /**
+   * Schedule a reconnection attempt with exponential backoff.
+   * Retries indefinitely until stop() is called.
+   */
+  _scheduleReconnect() {
+    if (this._reconnectTimer) return; // already scheduled
+    if (!this.socket) return;         // stopped
+
+    const delay = this._currentReconnectDelay;
+    this._currentReconnectDelay = Math.min(this._currentReconnectDelay * 2, this.maxReconnectDelayMs);
+
+    if (this.verbosity >= 1) {
+      console.warn(`Reconnecting to coordinator in ${Math.round(delay / 1000)}s...`);
+    }
+    if (this.handlers.has('reconnecting')) {
+      this.handlers.get('reconnecting')({ delay });
+    }
+
+    this._reconnectTimer = setTimeout(async () => {
+      this._reconnectTimer = null;
+      if (!this.socket) return; // stopped while waiting
+      this._helloRetryCount = 0;
+      await this._sendHello();
+    }, delay);
   }
 
   /**
@@ -731,6 +811,10 @@ export class UDPClient {
     if (this._helloRetryTimer) {
       clearTimeout(this._helloRetryTimer);
       this._helloRetryTimer = null;
+    }
+    if (this._reconnectTimer) {
+      clearTimeout(this._reconnectTimer);
+      this._reconnectTimer = null;
     }
     if (this.keepaliveInterval) {
       clearInterval(this.keepaliveInterval);
@@ -1120,7 +1204,12 @@ export class UDPServer {
     const updated = this.registry.updateTimestamp(ipPort);
     
     if (updated) {
-      // No response needed for ping (minimal overhead)
+      // Reply with PONG so the server knows the connection is alive
+      const pong = buildUDPMessage(MESSAGE_TYPES.PONG, Buffer.alloc(0));
+      this.socket.send(pong, rinfo.port, rinfo.address, (err) => {
+        if (err && this.verbosity >= 2) console.error('Error sending PONG:', err);
+      });
+
       if (this.messageHandlers.has('ping')) {
         this.messageHandlers.get('ping')(ipPort);
       }
