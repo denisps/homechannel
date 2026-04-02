@@ -3,6 +3,7 @@ import dns from 'dns';
 import {
   generateECDHKeyPair,
   computeECDHSecret,
+  detectKeyAgreementCurve,
   deriveAESKey,
   encryptAES,
   decryptAES,
@@ -99,8 +100,8 @@ export class UDPClient {
     this.expectedAnswer = null;
     this.aesKey = null;
     this.coordinatorPublicKey = options.coordinatorPublicKey || null;
-    this.keyAgreementCurve = options.keyAgreementCurve || 'x448';
-    this.signatureAlgorithm = options.signatureAlgorithm || this.serverKeys.signatureAlgorithm || 'ed448';
+    this.keyAgreementCurve = options.keyAgreementCurve || 'x25519';
+    this.signatureAlgorithm = options.signatureAlgorithm || this.serverKeys.signatureAlgorithm || 'ed25519';
     
     this.registered = false;
     this.handlers = new Map();
@@ -734,6 +735,12 @@ export class UDPClient {
     if (this.registered) {
       console.warn('Received ERROR from coordinator while registered — not known by coordinator, reconnecting immediately');
       this._currentReconnectDelay = this.reconnectDelayMs; // reset backoff
+    } else if (this.state === 'registering') {
+      console.error(
+        `Received ERROR from coordinator during registration. ` +
+        `This may indicate the coordinator rejected the key-agreement curve '${this.keyAgreementCurve}'. ` +
+        `Check that the server and coordinator crypto.keyAgreementCurve settings are compatible (supported: x25519, x448).`
+      );
     } else {
       console.error('Received ERROR from coordinator - likely rate limited or banned');
     }
@@ -936,8 +943,8 @@ export class UDPServer {
     this.port = options.port !== undefined ? options.port : 3478;
     this.socket = null;
     this.messageHandlers = new Map();
-    this.keyAgreementCurve = options.keyAgreementCurve || 'x448';
-    this.signatureAlgorithm = options.signatureAlgorithm || this.coordinatorKeys.signatureAlgorithm || 'ed448';
+    this.keyAgreementCurve = options.keyAgreementCurve || 'x25519';
+    this.signatureAlgorithm = options.signatureAlgorithm || this.coordinatorKeys.signatureAlgorithm || 'ed25519';
     // Verbosity: 0=silent (errors only), 1=normal (important events), 2=verbose (all messages with details)
     this.verbosity = options.verbosity !== undefined ? options.verbosity : 1;
     
@@ -1138,15 +1145,31 @@ export class UDPServer {
       // Tag verified - proceed with ECDH (expensive operation)
       // Clean up HELLO session
       this.helloSessions.delete(ipPort);
-      
-      // Generate coordinator's ECDH key pair
-      const ecdhKeys = generateECDHKeyPair(this.keyAgreementCurve);
-      
+
+      // Detect the curve from the server's ECDH public key so we can respond
+      // with a matching key pair — x25519 servers and x448 servers are both supported.
+      const serverCurve = detectKeyAgreementCurve(decoded.ecdhPublicKey);
+      if (!serverCurve) {
+        console.error(`ECDH init from ${ipPort}: unsupported or unrecognised key curve, rejecting`);
+        const errMsg = buildUDPMessage(MESSAGE_TYPES.ERROR, Buffer.alloc(0));
+        this.socket.send(errMsg, rinfo.port, rinfo.address, () => {});
+        return;
+      }
+      if (serverCurve !== this.keyAgreementCurve && this.verbosity >= 1) {
+        console.warn(
+          `Server at ${ipPort} uses key-agreement curve '${serverCurve}' ` +
+          `(coordinator configured for '${this.keyAgreementCurve}') — responding with '${serverCurve}'`
+        );
+      }
+
+      // Generate coordinator's ECDH key pair using the SAME curve as the server
+      const ecdhKeys = generateECDHKeyPair(serverCurve);
+
       // Compute shared secret immediately
       const sharedSecret = computeECDHSecret(
         ecdhKeys.privateKey,
         decoded.ecdhPublicKey,
-        ecdhKeys.curve || this.keyAgreementCurve
+        serverCurve
       );
       
       // Store ECDH session with shared secret

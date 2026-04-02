@@ -21,8 +21,8 @@ const _DEFAULT_COORDINATOR_CONFIG = {
     host: '0.0.0.0'
   },
   crypto: {
-    signatureAlgorithm: 'ed448',
-    keyAgreementCurve: 'x448'
+    signatureAlgorithm: 'ed25519',
+    keyAgreementCurve: 'x25519'
   },
   serverTimeout: 120000,
   maxServers: 100
@@ -48,8 +48,8 @@ class Coordinator {
       ? loadTLSCertificates(this.config.https.certPath, this.config.https.keyPath)
       : Promise.resolve({});
 
-    const signatureAlgorithm = normalizeSignatureAlgorithm(this.config.crypto?.signatureAlgorithm) || 'ed448';
-    const keyAgreementCurve = normalizeKeyAgreementCurve(this.config.crypto?.keyAgreementCurve) || 'x448';
+    const signatureAlgorithm = normalizeSignatureAlgorithm(this.config.crypto?.signatureAlgorithm) || 'ed25519';
+    const keyAgreementCurve = normalizeKeyAgreementCurve(this.config.crypto?.keyAgreementCurve) || 'x25519';
 
     this.signatureAlgorithm = signatureAlgorithm;
     this.keyAgreementCurve = keyAgreementCurve;

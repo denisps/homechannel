@@ -16,6 +16,20 @@ export function normalizeKeyAgreementCurve(curve) {
 }
 
 /**
+ * Detect key agreement curve from SPKI DER public key bytes.
+ * Returns 'x25519', 'x448', or null if unrecognised.
+ */
+export function detectKeyAgreementCurve(spkiDerKey) {
+  try {
+    const pubKeyObj = crypto.createPublicKey({ key: spkiDerKey, format: 'der', type: 'spki' });
+    const type = pubKeyObj.asymmetricKeyType; // 'x25519' or 'x448'
+    return KEY_AGREEMENT_CURVES.has(type) ? type : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Shared crypto module for EdDSA, X25519/X448, and HMAC operations
  * Used by both coordinator and server
  * Note: Key loading moved to keys.js to separate file I/O concerns
@@ -69,8 +83,8 @@ export function verifyHMAC(data, hmacValue, secret) {
 /**
  * Generate X25519/X448 key pair for key exchange
  */
-export function generateECDHKeyPair(curve = 'x448') {
-  const normalized = normalizeKeyAgreementCurve(curve) || 'x448';
+export function generateECDHKeyPair(curve = 'x25519') {
+  const normalized = normalizeKeyAgreementCurve(curve) || 'x25519';
 
   try {
     const { publicKey, privateKey } = crypto.generateKeyPairSync(normalized);
@@ -84,6 +98,7 @@ export function generateECDHKeyPair(curve = 'x448') {
     if (normalized === 'x448') {
       return generateECDHKeyPair('x25519');
     }
+    // x25519 failed too — propagate
     throw error;
   }
 }
@@ -91,8 +106,8 @@ export function generateECDHKeyPair(curve = 'x448') {
 /**
  * Compute X25519/X448 shared secret
  */
-export function computeECDHSecret(privateKey, peerPublicKey, curve = 'x448') {
-  const normalized = normalizeKeyAgreementCurve(curve) || 'x448';
+export function computeECDHSecret(privateKey, peerPublicKey, curve = 'x25519') {
+  const normalized = normalizeKeyAgreementCurve(curve) || 'x25519';
   const privateKeyObj = crypto.createPrivateKey({
     key: privateKey,
     format: 'der',

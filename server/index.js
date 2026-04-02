@@ -20,8 +20,8 @@ const _DEFAULT_SERVER_CONFIG = {
     port: 3478
   },
   crypto: {
-    signatureAlgorithm: 'ed448',
-    keyAgreementCurve: 'x448'
+    signatureAlgorithm: 'ed25519',
+    keyAgreementCurve: 'x25519'
   },
   password: 'change-me',
   // udpLocalPort: 0 (uncomment and set to a fixed port to keep NAT mapping stable)
@@ -50,8 +50,8 @@ class Server {
     // Display WebRTC library status
     await displayWebRTCStatus();
 
-    const signatureAlgorithm = normalizeSignatureAlgorithm(this.config.crypto?.signatureAlgorithm) || 'ed448';
-    const keyAgreementCurve = normalizeKeyAgreementCurve(this.config.crypto?.keyAgreementCurve) || 'x448';
+    const signatureAlgorithm = normalizeSignatureAlgorithm(this.config.crypto?.signatureAlgorithm) || 'ed25519';
+    const keyAgreementCurve = normalizeKeyAgreementCurve(this.config.crypto?.keyAgreementCurve) || 'x25519';
 
     this.signatureAlgorithm = signatureAlgorithm;
     this.keyAgreementCurve = keyAgreementCurve;

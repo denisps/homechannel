@@ -21,7 +21,7 @@ const SIGNATURE_ALGORITHMS = {
   }
 };
 
-const DEFAULT_SIGNATURE_ALGORITHM = 'ed448';
+const DEFAULT_SIGNATURE_ALGORITHM = 'ed25519';
 
 function normalizeSignatureAlgorithm(algorithm) {
   if (!algorithm) {

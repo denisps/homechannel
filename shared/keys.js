@@ -33,8 +33,8 @@ export function detectSignatureAlgorithm(publicKeyPem) {
 /**
  * Generate Ed25519/Ed448 key pair
  */
-export function generateSigningKeyPair(signatureAlgorithm = 'ed448') {
-  const normalized = normalizeSignatureAlgorithm(signatureAlgorithm) || 'ed448';
+export function generateSigningKeyPair(signatureAlgorithm = 'ed25519') {
+  const normalized = normalizeSignatureAlgorithm(signatureAlgorithm) || 'ed25519';
   return {
     ...crypto.generateKeyPairSync(normalized, {
     publicKeyEncoding: {
