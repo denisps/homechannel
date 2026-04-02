@@ -154,11 +154,20 @@
           let result;
           
           switch (method) {
-            case 'getServerInfo':
+            case 'getServerInfo': {
               updateStatus('Checking server status...');
-              const serversResponse = await apiCall('/api/servers', {
-                serverPublicKeys: [params.serverPublicKey]
-              });
+              let serversResponse;
+              const maxAttempts = 3;
+              for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+                serversResponse = await apiCall('/api/servers', {
+                  serverPublicKeys: [params.serverPublicKey]
+                });
+                if (serversResponse.servers && serversResponse.servers.length > 0) break;
+                if (attempt < maxAttempts) {
+                  updateStatus(`Server not found, retrying (${attempt}/${maxAttempts - 1})…`);
+                  await new Promise(r => setTimeout(r, 3000));
+                }
+              }
               
               if (!serversResponse.servers || serversResponse.servers.length === 0) {
                 throw new Error('Server not found');
@@ -166,6 +175,7 @@
               
               result = serversResponse.servers[0];
               break;
+            }
               
             case 'connect':
               updateStatus('Sending connection request...');

@@ -724,8 +724,16 @@ export class UDPClient {
    * Handle ERROR message from coordinator
    */
   handleError(payload) {
-    // ERROR has no payload (rate limiting/ban notification)
-    console.error('Received ERROR from coordinator - likely rate limited or banned');
+    // ERROR can mean: rate limited/banned, OR coordinator doesn't recognise us (after restart).
+    // When we're currently registered, the only sensible reason is that the coordinator lost
+    // our session (e.g. restart) — reset backoff so we reconnect quickly.
+    if (this.registered) {
+      console.warn('Received ERROR from coordinator while registered — not known by coordinator, reconnecting immediately');
+      this._currentReconnectDelay = this.reconnectDelayMs; // reset backoff
+    } else {
+      console.error('Received ERROR from coordinator - likely rate limited or banned');
+    }
+
     this.state = 'disconnected';
     this.registered = false;
     
@@ -1276,6 +1284,17 @@ export class UDPServer {
       if (this.messageHandlers.has('ping')) {
         this.messageHandlers.get('ping')(ipPort);
       }
+    } else {
+      // Unknown server — send ERROR so it re-registers immediately instead of waiting
+      // for the dead-interval timeout (which could be 90s by default).
+      // ERROR payload is empty (same size as PING = no amplification risk).
+      if (this.verbosity >= 1) {
+        console.log(`PING from unregistered server at ${ipPort} — sending re-register signal`);
+      }
+      const error = buildUDPMessage(MESSAGE_TYPES.ERROR, Buffer.alloc(0));
+      this.socket.send(error, rinfo.port, rinfo.address, (err) => {
+        if (err && this.verbosity >= 2) console.error('Error sending re-register signal:', err);
+      });
     }
   }
 
