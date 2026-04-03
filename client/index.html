@@ -189,27 +189,52 @@
       }
     }
 
+    // Track active iframe message bridge so we can remove it when switching apps
+    let _activeIframeMessageHandler = null;
+
     async function openApp(appName) {
       appStatusEl.textContent = `Opening ${appName}…`;
       try {
         const channel = await client.openAppChannel(appName);
-        // Wait for app bundle header + payload
+        // Wait for app:bundle header, then the bundle payload
         channel.onmessage = (event) => {
           try {
             const data = typeof event.data === 'string' ? event.data : '';
-            // Attempt to parse as bundle header
             const parsed = JSON.parse(data);
             if (parsed.type === 'app:bundle') {
-              // Next message will be the bundle
+              // Next message is the raw bundle text
               channel.onmessage = (bundleEvent) => {
                 const bundle = typeof bundleEvent.data === 'string' ? bundleEvent.data : '';
                 appView.style.display = 'none';
                 appContainer.style.display = 'block';
-                client.loadAppInSandbox(appName, bundle, appContainer);
+                appContainer.innerHTML = '';
+
+                const iframe = client.loadAppInSandbox(appName, bundle, appContainer);
+
+                // Remove any previous bridge listener
+                if (_activeIframeMessageHandler) {
+                  window.removeEventListener('message', _activeIframeMessageHandler);
+                }
+
+                // Bridge: iframe postMessage → datachannel
+                _activeIframeMessageHandler = (evt) => {
+                  if (evt.data && evt.data.type === 'channel:send' && typeof evt.data.data === 'string') {
+                    try { channel.send(evt.data.data); } catch (_) {}
+                  }
+                };
+                window.addEventListener('message', _activeIframeMessageHandler);
+
+                // Bridge: datachannel → iframe postMessage
+                channel.onmessage = (msgEvent) => {
+                  const msgData = typeof msgEvent.data === 'string' ? msgEvent.data : '';
+                  if (iframe.contentWindow) {
+                    iframe.contentWindow.postMessage({ type: 'channel:message', data: msgData }, '*');
+                  }
+                };
               };
             }
           } catch (_) {
-            // Not a header message
+            // Not a JSON header — ignore
           }
         };
       } catch (err) {
