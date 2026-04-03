@@ -11,6 +11,31 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Timeout for node-datachannel local description generation (ms)
 const NODE_DATACHANNEL_TIMEOUT_MS = 5000;
 
+// ── Binary channel framing ────────────────────────────────────────────────────
+// Frame format: [type:uint8][payloadLen:uint32BE][payload]
+const FRAME_JSON   = 0x01; // UTF-8 JSON  (command / response)
+const FRAME_CHUNK  = 0x02; // raw binary  (file stream chunk)
+const FRAME_END    = 0x03; // JSON: { requestId, size? } — stream finished
+const FRAME_CANCEL = 0x04; // JSON: { requestId }        — abort stream
+const APP_CHUNK_SIZE = 65536; // 64 KB per chunk
+
+function framePack(type, payload) {
+  const buf = Buffer.isBuffer(payload) ? payload : Buffer.from(payload);
+  const frame = Buffer.allocUnsafe(5 + buf.length);
+  frame.writeUInt8(type, 0);
+  frame.writeUInt32BE(buf.length, 1);
+  buf.copy(frame, 5);
+  return frame;
+}
+
+function frameUnpack(data) {
+  const buf = Buffer.isBuffer(data) ? data : Buffer.from(data);
+  if (buf.length < 5) throw new Error('Frame too short');
+  const type = buf.readUInt8(0);
+  const len  = buf.readUInt32BE(1);
+  return { type, payload: buf.slice(5, 5 + len) };
+}
+
 // Supported WebRTC libraries
 const SUPPORTED_LIBRARIES = ['werift', 'wrtc', 'node-datachannel'];
 
@@ -371,37 +396,146 @@ export class WebRTCPeer {
   }
 
   /**
+   * Core framed app-channel handler, shared by W3C and node-datachannel paths.
+   * sendBuf(Buffer) — sends a binary frame over the channel.
+   */
+  async _handleAppFrame(rawData, appName, state, sendBuf) {
+    const buf = Buffer.isBuffer(rawData) ? rawData
+      : rawData instanceof ArrayBuffer ? Buffer.from(rawData)
+      : Buffer.from(rawData);
+
+    let ft, payload;
+    try {
+      ({ type: ft, payload } = frameUnpack(buf));
+    } catch {
+      // Fallback: old-protocol plain JSON string
+      try {
+        const msg = JSON.parse(buf.toString('utf8'));
+        const resp = await this.serviceRouter.handleAppMessage(appName, msg);
+        sendBuf(framePack(FRAME_JSON, JSON.stringify(resp)));
+      } catch { /* ignore malformed */ }
+      return;
+    }
+
+    if (ft === FRAME_JSON) {
+      let msg;
+      try { msg = JSON.parse(payload.toString('utf8')); } catch { return; }
+
+      if (msg.operation === 'readFile') {
+        await this._streamFileToChannel(appName, msg.requestId, msg.params, sendBuf);
+      } else if (msg.operation === 'writeFile' &&
+                 msg.params && typeof msg.params.size === 'number' &&
+                 !msg.params.content) {
+        // Chunked upload — wait for FRAME_CHUNK + FRAME_END
+        state.upload = { requestId: msg.requestId, params: msg.params, chunks: [], received: 0 };
+        sendBuf(framePack(FRAME_JSON, JSON.stringify({ requestId: msg.requestId, uploading: true })));
+      } else {
+        const resp = await this.serviceRouter.handleAppMessage(appName, msg);
+        sendBuf(framePack(FRAME_JSON, JSON.stringify(resp)));
+      }
+    } else if (ft === FRAME_CHUNK && state.upload) {
+      state.upload.chunks.push(Buffer.from(payload));
+      state.upload.received += payload.length;
+    } else if (ft === FRAME_END && state.upload) {
+      const up = state.upload;
+      state.upload = null;
+      try {
+        const content = Buffer.concat(up.chunks);
+        const resp = await this.serviceRouter.handleAppMessage(appName, {
+          requestId: up.requestId,
+          operation: 'writeFile',
+          params: { path: up.params.path, content: content.toString('base64'), encoding: 'base64' }
+        });
+        sendBuf(framePack(FRAME_JSON, JSON.stringify(resp)));
+      } catch (err) {
+        sendBuf(framePack(FRAME_JSON, JSON.stringify(
+          { requestId: up.requestId, success: false, error: err.message }
+        )));
+      }
+    } else if (ft === FRAME_CANCEL && state.upload) {
+      state.upload = null;
+    }
+  }
+
+  /**
+   * Stream a file to the channel in binary chunks.
+   */
+  async _streamFileToChannel(appName, requestId, params, sendBuf) {
+    try {
+      const appInst = this.serviceRouter.apps.get(appName)?.instance;
+
+      if (appInst && typeof appInst.streamFile === 'function') {
+        let totalSize = 0;
+        for await (const item of appInst.streamFile(params)) {
+          if (item.type === 'meta') {
+            totalSize = item.size;
+            sendBuf(framePack(FRAME_JSON, JSON.stringify({
+              requestId, streaming: true,
+              result: { size: item.size, mimeType: item.mimeType }
+            })));
+          } else if (item.type === 'chunk') {
+            sendBuf(framePack(FRAME_CHUNK, item.data));
+          }
+        }
+        sendBuf(framePack(FRAME_END, JSON.stringify({ requestId, size: totalSize })));
+      } else {
+        // Fallback: read whole file, send in chunks
+        const resp = await this.serviceRouter.handleAppMessage(appName,
+          { requestId: `${requestId}_r`, operation: 'readFile', params });
+        if (!resp.success) {
+          sendBuf(framePack(FRAME_JSON, JSON.stringify({ requestId, success: false, error: resp.error })));
+          return;
+        }
+        const content = resp.result.encoding === 'base64'
+          ? Buffer.from(resp.result.content, 'base64')
+          : Buffer.from(resp.result.content, 'utf8');
+        sendBuf(framePack(FRAME_JSON, JSON.stringify({
+          requestId, streaming: true,
+          result: { size: content.length, mimeType: resp.result.mimeType }
+        })));
+        for (let off = 0; off < content.length; off += APP_CHUNK_SIZE) {
+          sendBuf(framePack(FRAME_CHUNK, content.slice(off, off + APP_CHUNK_SIZE)));
+        }
+        sendBuf(framePack(FRAME_END, JSON.stringify({ requestId, size: content.length })));
+      }
+    } catch (err) {
+      sendBuf(framePack(FRAME_JSON, JSON.stringify({ requestId, success: false, error: err.message })));
+    }
+  }
+
+  /**
    * Setup app channel handlers (W3C)
-   * Sends bundle on open, then handles app messages
+   * Sends bundle on open, then handles framed app messages
    */
   _setupAppChannelHandlers(dc, appName) {
-    dc.onopen = async () => {
-      // Send app bundle when channel opens
-      await this._sendAppBundle(dc, appName);
-    };
+    const state = { upload: null };
+    const sendBuf = (buf) => dc.send(buf);
+
+    dc.onopen = async () => await this._sendAppBundle(dc, appName);
 
     dc.onmessage = async (event) => {
-      try {
-        const message = JSON.parse(event.data);
-        const response = await this.serviceRouter.handleAppMessage(appName, message);
-        dc.send(JSON.stringify(response));
-      } catch (error) {
-        const errorResponse = {
-          requestId: null,
-          success: false,
-          error: error.message || 'App message error'
-        };
-        dc.send(JSON.stringify(errorResponse));
-      }
+      await this._handleAppFrame(event.data, appName, state, sendBuf);
     };
 
-    dc.onclose = () => {
-      // App channel closed
-    };
+    dc.onclose = () => { state.upload = null; };
+    dc.onerror = (e) => console.error(`App channel error [${appName}]:`, e);
+  }
 
-    dc.onerror = (error) => {
-      console.error(`App channel error [${appName}]:`, error);
-    };
+  /**
+   * Setup app channel handlers (node-datachannel)
+   */
+  _setupAppChannelHandlersNodeDC(dc, appName) {
+    const state = { upload: null };
+    const sendBuf = (buf) => dc.sendMessageBinary(buf);
+
+    dc.onOpen(async () => await this._sendAppBundleNodeDC(dc, appName));
+
+    dc.onMessage(async (msg) => {
+      await this._handleAppFrame(msg, appName, state, sendBuf);
+    });
+
+    dc.onClosed(() => { state.upload = null; });
+    dc.onError((e) => console.error(`App channel error [${appName}]:`, e));
   }
 
   /**
@@ -466,43 +600,53 @@ export class WebRTCPeer {
   }
 
   /**
-   * Setup app channel handlers (node-datachannel)
+   * Send app bundle as a single binary-framed JSON message (W3C)
    */
-  _setupAppChannelHandlersNodeDC(dc, appName) {
-    dc.onOpen(async () => {
-      // Send app bundle when channel opens
-      await this._sendAppBundleNodeDC(dc, appName);
-    });
+  async _sendAppBundle(dc, appName) {
+    try {
+      const app = this.serviceRouter.apps.get(appName);
+      if (!app || !app.manifest) throw new Error(`App not found: ${appName}`);
 
-    dc.onMessage(async (msg) => {
-      try {
-        const message = JSON.parse(msg);
-        const response = await this.serviceRouter.handleAppMessage(appName, message);
-        dc.sendMessage(JSON.stringify(response));
-      } catch (error) {
-        const errorResponse = {
-          requestId: null,
-          success: false,
-          error: error.message || 'App message error'
-        };
-        dc.sendMessage(JSON.stringify(errorResponse));
-      }
-    });
+      const bundle = app.manifest.ui ? await this._loadAppUIBundle(appName, app.manifest) : null;
+      const header = {
+        type: 'app:bundle',
+        name: app.manifest.name,
+        version: app.manifest.version,
+        format: app.manifest.format || 'es-module',
+        bundle
+      };
+      dc.send(framePack(FRAME_JSON, JSON.stringify(header)));
+    } catch (error) {
+      console.error(`Failed to send app bundle [${appName}]:`, error);
+      dc.send(framePack(FRAME_JSON, JSON.stringify({ type: 'error', error: error.message })));
+    }
+  }
 
-    dc.onClosed(() => {
-      // App channel closed
-    });
+  /**
+   * Send app bundle as a single binary-framed JSON message (node-datachannel)
+   */
+  async _sendAppBundleNodeDC(dc, appName) {
+    try {
+      const app = this.serviceRouter.apps.get(appName);
+      if (!app || !app.manifest) throw new Error(`App not found: ${appName}`);
 
-    dc.onError((error) => {
-      console.error(`App channel error [${appName}]:`, error);
-    });
+      const bundle = app.manifest.ui ? await this._loadAppUIBundle(appName, app.manifest) : null;
+      const header = {
+        type: 'app:bundle',
+        name: app.manifest.name,
+        version: app.manifest.version,
+        format: app.manifest.format || 'es-module',
+        bundle
+      };
+      dc.sendMessageBinary(framePack(FRAME_JSON, JSON.stringify(header)));
+    } catch (error) {
+      console.error(`Failed to send app bundle [${appName}]:`, error);
+      dc.sendMessageBinary(framePack(FRAME_JSON, JSON.stringify({ type: 'error', error: error.message })));
+    }
   }
 
   /**
    * Load app UI bundle from filesystem
-   * @param {string} appName - Name of the app
-   * @param {object} manifest - App manifest
-   * @returns {Promise<string>} UI bundle content
    */
   async _loadAppUIBundle(appName, manifest) {
     if (!manifest.ui) {
@@ -516,80 +660,6 @@ export class WebRTCPeer {
       return bundle;
     } catch (error) {
       throw new Error(`Failed to read UI bundle: ${error.message}`);
-    }
-  }
-
-  /**
-   * Send app bundle over datachannel (W3C)
-   */
-  async _sendAppBundle(dc, appName) {
-    try {
-      const app = this.serviceRouter.apps.get(appName);
-      if (!app || !app.manifest) {
-        throw new Error(`App not found: ${appName}`);
-      }
-
-      // Send header with metadata
-      const header = {
-        type: 'app:bundle',
-        name: app.manifest.name,
-        version: app.manifest.version,
-        format: app.manifest.format || 'es-module',
-        entry: app.manifest.entry,
-        ui: app.manifest.ui || null
-      };
-
-      dc.send(JSON.stringify(header));
-      
-      // Load and send UI bundle if specified
-      if (app.manifest.ui) {
-        const bundle = await this._loadAppUIBundle(appName, app.manifest);
-        dc.send(bundle);
-      }
-    } catch (error) {
-      console.error(`Failed to send app bundle [${appName}]:`, error);
-      const errorMsg = {
-        type: 'error',
-        error: error.message || 'Failed to load app bundle'
-      };
-      dc.send(JSON.stringify(errorMsg));
-    }
-  }
-
-  /**
-   * Send app bundle over datachannel (node-datachannel)
-   */
-  async _sendAppBundleNodeDC(dc, appName) {
-    try {
-      const app = this.serviceRouter.apps.get(appName);
-      if (!app || !app.manifest) {
-        throw new Error(`App not found: ${appName}`);
-      }
-
-      // Send header with metadata
-      const header = {
-        type: 'app:bundle',
-        name: app.manifest.name,
-        version: app.manifest.version,
-        format: app.manifest.format || 'es-module',
-        entry: app.manifest.entry,
-        ui: app.manifest.ui || null
-      };
-
-      dc.sendMessage(JSON.stringify(header));
-      
-      // Load and send UI bundle if specified
-      if (app.manifest.ui) {
-        const bundle = await this._loadAppUIBundle(appName, app.manifest);
-        dc.sendMessage(bundle);
-      }
-    } catch (error) {
-      console.error(`Failed to send app bundle [${appName}]:`, error);
-      const errorMsg = {
-        type: 'error',
-        error: error.message || 'Failed to load app bundle'
-      };
-      dc.sendMessage(JSON.stringify(errorMsg));
     }
   }
 

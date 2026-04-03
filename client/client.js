@@ -778,9 +778,748 @@ class Client {
 }
 
 // ============================================================================
+// Binary channel framing (browser, mirrors server/webrtc.js FRAME_* constants)
+// Frame format: [type:uint8][payloadLen:uint32BE][payload]
+// ============================================================================
+const FRAME_JSON   = 0x01; // UTF-8 JSON payload
+const FRAME_CHUNK  = 0x02; // raw binary chunk
+const FRAME_END    = 0x03; // end-of-stream, JSON payload: { requestId }
+const FRAME_CANCEL = 0x04; // cancel, JSON payload: { requestId }
+
+function packFrame(type, payload) {
+  let bytes;
+  if (payload instanceof ArrayBuffer) {
+    bytes = new Uint8Array(payload);
+  } else if (ArrayBuffer.isView(payload)) {
+    bytes = new Uint8Array(payload.buffer, payload.byteOffset, payload.byteLength);
+  } else {
+    bytes = new TextEncoder().encode(String(payload));
+  }
+  const frame = new ArrayBuffer(5 + bytes.byteLength);
+  const view = new DataView(frame);
+  view.setUint8(0, type);
+  view.setUint32(1, bytes.byteLength, false); // big-endian
+  new Uint8Array(frame).set(bytes, 5);
+  return frame;
+}
+
+function unpackFrame(data) {
+  const buf = data instanceof ArrayBuffer ? data
+    : data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+  if (buf.byteLength < 5) throw new Error('Frame too short');
+  const view = new DataView(buf);
+  const type = view.getUint8(0);
+  const len  = view.getUint32(1, false);
+  return { type, payload: buf.slice(5, 5 + len) };
+}
+
+// HTML-escape helper for safe dynamic markup
+function _hcEsc(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// ============================================================================
+// Desktop CSS (injected once)
+// ============================================================================
+const _HC_STYLES = `
+  #hc-desktop {
+    position: fixed; inset: 0;
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+    overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 14px;
+  }
+  #hc-cov {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    z-index: 500; background: rgba(0,0,0,0.2);
+  }
+  .hc-card {
+    background: #fff; border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+    padding: 2rem; max-width: 480px; width: 90%;
+  }
+  .hc-card h1 { font-size: 1.5rem; color: #667eea; margin-bottom: 1.4rem; text-align: center; }
+  .hc-fg { margin-bottom: 1rem; }
+  .hc-fg label { display: block; margin-bottom: 0.35rem; font-weight: 500; color: #555; font-size: 0.88rem; }
+  .hc-fg input, .hc-fg textarea {
+    width: 100%; padding: 0.55rem 0.7rem; border: 1px solid #ddd;
+    border-radius: 6px; font-size: 0.9rem; font-family: inherit;
+  }
+  .hc-fg input:focus, .hc-fg textarea:focus { outline: none; border-color: #667eea; }
+  .hc-fg textarea { min-height: 68px; font-family: monospace; font-size: 0.78rem; resize: vertical; }
+  .hc-submit {
+    width: 100%; padding: 0.65rem; border: none; border-radius: 6px;
+    font-size: 0.95rem; font-weight: 600; cursor: pointer;
+    background: linear-gradient(135deg, #667eea, #764ba2); color: #fff; margin-top: 0.4rem;
+  }
+  .hc-submit:disabled { opacity: 0.5; cursor: not-allowed; }
+  .hc-c-status { text-align: center; margin-top: 0.6rem; font-size: 0.85rem; color: #666; min-height: 1.1em; }
+  .hc-c-status.err { color: #e55; }
+  #hc-tb {
+    position: absolute; bottom: 0; left: 0; right: 0; height: 44px;
+    background: rgba(10,10,20,0.85); backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-top: 1px solid rgba(255,255,255,0.1);
+    display: none; align-items: center; gap: 4px; padding: 0 8px; z-index: 200;
+  }
+  #hc-tb.hc-visible { display: flex; }
+  #hc-tb-start {
+    padding: 4px 12px; border: none; border-radius: 6px;
+    background: rgba(102,126,234,0.7); color: #fff;
+    font-size: 0.82rem; font-weight: 600; cursor: pointer; flex-shrink: 0;
+  }
+  #hc-tb-start:hover { background: rgba(102,126,234,0.9); }
+  #hc-tb-apps { display: flex; gap: 4px; flex: 1; overflow-x: auto; min-width: 0; }
+  .hc-tb-task {
+    padding: 4px 12px; border: none; border-radius: 5px;
+    background: rgba(255,255,255,0.12); color: #fff;
+    font-size: 0.75rem; cursor: pointer; white-space: nowrap;
+    max-width: 160px; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0;
+  }
+  .hc-tb-task.active { background: rgba(255,255,255,0.28); }
+  .hc-tb-task:hover { background: rgba(255,255,255,0.2); }
+  #hc-tb-disco {
+    padding: 4px 10px; border: none; border-radius: 5px;
+    background: rgba(220,50,50,0.5); color: #fff;
+    font-size: 0.75rem; cursor: pointer; flex-shrink: 0;
+  }
+  #hc-tb-disco:hover { background: rgba(220,50,50,0.8); }
+  .hc-win {
+    position: absolute; min-width: 320px; min-height: 180px;
+    background: #fff; border-radius: 8px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.35);
+    display: flex; flex-direction: column; overflow: hidden; outline: none;
+  }
+  .hc-win.hc-focused { box-shadow: 0 12px 48px rgba(0,0,0,0.5), 0 0 0 1px rgba(102,126,234,0.4); }
+  .hc-win.hc-minimized { display: none; }
+  .hc-win.hc-maximized { border-radius: 0; }
+  .hc-wtb {
+    height: 34px; background: linear-gradient(90deg, #667eea, #764ba2); color: #fff;
+    display: flex; align-items: center; padding: 0 6px 0 10px;
+    cursor: default; user-select: none; flex-shrink: 0;
+  }
+  .hc-wtb-drag { display: flex; align-items: center; flex: 1; overflow: hidden; cursor: move; gap: 6px; }
+  .hc-wico { font-size: 0.85rem; }
+  .hc-wtitle { font-weight: 600; font-size: 0.82rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hc-wbtns { display: flex; gap: 3px; flex-shrink: 0; }
+  .hc-wbtn {
+    width: 22px; height: 22px; border: none; border-radius: 50%; font-size: 0.75rem;
+    font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center;
+  }
+  .hc-wbtn-min { background: #f6c90e; color: #555; }
+  .hc-wbtn-max { background: #4caf50; color: #fff; font-size: 0.65rem; }
+  .hc-wbtn-cls { background: #f44336; color: #fff; }
+  .hc-wbtn:hover { opacity: 0.8; }
+  .hc-wbody { flex: 1; overflow: hidden; position: relative; background: #f5f7fa; }
+  .hc-wbody iframe { width: 100%; height: 100%; border: none; display: block; }
+  .hc-wload {
+    display: flex; align-items: center; justify-content: center;
+    height: 100%; color: #667eea; font-size: 0.9rem; padding: 1rem; text-align: center;
+  }
+  .hc-rz { position: absolute; z-index: 10; }
+  .hc-rz-n  { top: 0; left: 7px; right: 7px; height: 5px; cursor: n-resize; }
+  .hc-rz-s  { bottom: 0; left: 7px; right: 7px; height: 5px; cursor: s-resize; }
+  .hc-rz-e  { right: 0; top: 7px; bottom: 7px; width: 5px; cursor: e-resize; }
+  .hc-rz-w  { left: 0; top: 7px; bottom: 7px; width: 5px; cursor: w-resize; }
+  .hc-rz-nw { top: 0; left: 0; width: 12px; height: 12px; cursor: nw-resize; }
+  .hc-rz-ne { top: 0; right: 0; width: 12px; height: 12px; cursor: ne-resize; }
+  .hc-rz-sw { bottom: 0; left: 0; width: 12px; height: 12px; cursor: sw-resize; }
+  .hc-rz-se { bottom: 0; right: 0; width: 12px; height: 12px; cursor: se-resize; }
+  .hc-launcher-body { padding: 0.6rem; overflow-y: auto; height: 100%; }
+  .hc-app-btn {
+    display: flex; align-items: center; gap: 10px; width: 100%;
+    padding: 0.55rem 0.75rem; border: none; border-radius: 7px;
+    background: #f0f2ff; text-align: left; cursor: pointer; margin-bottom: 6px; font-size: 0.85rem;
+  }
+  .hc-app-btn:hover { background: #e0e4ff; }
+  .hc-app-btn .anic { font-size: 1.3rem; }
+  .hc-app-btn .nfo strong { display: block; font-size: 0.88rem; }
+  .hc-app-btn .nfo small { color: #888; font-size: 0.75rem; }
+`;
+
+// ============================================================================
+// WindowManager — manages z-order and lifetime of all AppWindows
+// ============================================================================
+class WindowManager {
+  constructor(desktopEl) {
+    this.desktop = desktopEl;
+    this.windows = [];
+    this._z = 100;
+  }
+
+  createWindow(title, opts = {}) {
+    const win = new AppWindow(this, title, opts);
+    this.windows.push(win);
+    this.desktop.appendChild(win.el);
+    this.bringToFront(win);
+    return win;
+  }
+
+  removeWindow(win) {
+    const idx = this.windows.indexOf(win);
+    if (idx >= 0) this.windows.splice(idx, 1);
+    win.el.remove();
+  }
+
+  bringToFront(win) {
+    this._z++;
+    win.el.style.zIndex = this._z;
+    this.windows.forEach(w => w.el.classList.toggle('hc-focused', w === win));
+  }
+}
+
+// ============================================================================
+// AppWindow — resizable, draggable, minimizable, maximizable, closable window
+// ============================================================================
+class AppWindow {
+  constructor(mgr, title, opts = {}) {
+    this.mgr   = mgr;
+    this.title = title;
+    this.opts  = opts;
+    this.minimized    = false;
+    this.maximized    = false;
+    this._savedBounds = null;
+    this._tbBtn  = null;
+    this._iframe = null;
+    this.onClose = opts.onClose || null;
+    this.el = this._build();
+    const w = opts.w || 900;
+    const h = opts.h || 580;
+    const tbH = 44; // taskbar height
+    const x = opts.x ?? Math.max(10, Math.min((window.innerWidth  - w - 10), 40 + (Math.random() * 80 | 0)));
+    const y = opts.y ?? Math.max(10, Math.min((window.innerHeight - h - tbH - 10), 40 + (Math.random() * 40 | 0)));
+    this._setBounds(x, y, w, h);
+    this._setupDrag();
+    this._setupResize();
+    this.el.addEventListener('mousedown', () => this.mgr.bringToFront(this));
+  }
+
+  _build() {
+    const el = document.createElement('div');
+    el.className = 'hc-win';
+    el.tabIndex  = -1;
+    el.innerHTML =
+      '<div class="hc-rz hc-rz-n" data-dir="n"></div>' +
+      '<div class="hc-rz hc-rz-s" data-dir="s"></div>' +
+      '<div class="hc-rz hc-rz-e" data-dir="e"></div>' +
+      '<div class="hc-rz hc-rz-w" data-dir="w"></div>' +
+      '<div class="hc-rz hc-rz-nw" data-dir="nw"></div>' +
+      '<div class="hc-rz hc-rz-ne" data-dir="ne"></div>' +
+      '<div class="hc-rz hc-rz-sw" data-dir="sw"></div>' +
+      '<div class="hc-rz hc-rz-se" data-dir="se"></div>' +
+      '<div class="hc-wtb">' +
+      '  <div class="hc-wtb-drag">' +
+      `    <span class="hc-wico">${_hcEsc(this.opts.icon || '⚙️')}</span>` +
+      `    <span class="hc-wtitle">${_hcEsc(this.title)}</span>` +
+      '  </div>' +
+      '  <div class="hc-wbtns">' +
+      '    <button class="hc-wbtn hc-wbtn-min" title="Minimize">&#x2013;</button>' +
+      '    <button class="hc-wbtn hc-wbtn-max" title="Maximize/Restore">&#x25a1;</button>' +
+      '    <button class="hc-wbtn hc-wbtn-cls" title="Close">&times;</button>' +
+      '  </div>' +
+      '</div>' +
+      '<div class="hc-wbody"><div class="hc-wload">Loading\u2026</div></div>';
+    el.querySelector('.hc-wbtn-min').addEventListener('click', e => { e.stopPropagation(); this.minimize(); });
+    el.querySelector('.hc-wbtn-max').addEventListener('click', e => { e.stopPropagation(); this.maximize(); });
+    el.querySelector('.hc-wbtn-cls').addEventListener('click', e => { e.stopPropagation(); this.close(); });
+    return el;
+  }
+
+  showLoading(msg = 'Loading\u2026') {
+    this.el.querySelector('.hc-wbody').innerHTML = `<div class="hc-wload">${_hcEsc(msg)}</div>`;
+  }
+
+  showError(msg) {
+    this.el.querySelector('.hc-wbody').innerHTML =
+      `<div class="hc-wload" style="color:#e55;flex-direction:column;gap:.5rem">` +
+      `<span>&#x274C;</span><span>${_hcEsc(msg)}</span></div>`;
+  }
+
+  _setBounds(left, top, width, height) {
+    const s = this.el.style;
+    s.left   = `${Math.round(left)}px`;
+    s.top    = `${Math.round(top)}px`;
+    s.width  = `${Math.max(320,  Math.round(width))}px`;
+    s.height = `${Math.max(180, Math.round(height))}px`;
+  }
+
+  _getBounds() {
+    const s = this.el.style;
+    return {
+      left:   parseInt(s.left)   || 0,
+      top:    parseInt(s.top)    || 0,
+      width:  parseInt(s.width)  || 900,
+      height: parseInt(s.height) || 580
+    };
+  }
+
+  minimize() {
+    if (this.minimized) return;
+    this.minimized = true;
+    this.el.classList.add('hc-minimized');
+    this._tbBtn?.classList.remove('active');
+  }
+
+  restore() {
+    if (!this.minimized) return;
+    this.minimized = false;
+    this.el.classList.remove('hc-minimized');
+    this.mgr.bringToFront(this);
+    this._tbBtn?.classList.add('active');
+  }
+
+  maximize() {
+    if (this.maximized) {
+      if (this._savedBounds) {
+        const b = this._savedBounds;
+        this._setBounds(b.left, b.top, b.width, b.height);
+      }
+      this.maximized = false;
+      this.el.classList.remove('hc-maximized');
+      this.el.querySelector('.hc-wbtn-max').innerHTML = '&#x25a1;';
+    } else {
+      this._savedBounds = this._getBounds();
+      const tb = document.getElementById('hc-tb');
+      const tbH = tb ? tb.offsetHeight : 44;
+      this._setBounds(0, 0, this.mgr.desktop.clientWidth, this.mgr.desktop.clientHeight - tbH);
+      this.maximized = true;
+      this.el.classList.add('hc-maximized');
+      this.el.querySelector('.hc-wbtn-max').innerHTML = '&#x274f;';
+    }
+  }
+
+  close() {
+    if (typeof this.onClose === 'function') this.onClose();
+    this.mgr.removeWindow(this);
+  }
+
+  _setupDrag() {
+    const handle = this.el.querySelector('.hc-wtb-drag');
+    handle.addEventListener('mousedown', e => {
+      if (this.maximized) return;
+      e.preventDefault();
+      this.mgr.bringToFront(this);
+      const { left: startL, top: startT } = this._getBounds();
+      const startX = e.clientX, startY = e.clientY;
+      const overlay = document.createElement('div');
+      overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;cursor:move';
+      document.body.appendChild(overlay);
+      const onMove = me => {
+        this._setBounds(startL + me.clientX - startX, startT + me.clientY - startY,
+          parseInt(this.el.style.width), parseInt(this.el.style.height));
+      };
+      const onUp = () => {
+        overlay.remove();
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+    handle.addEventListener('dblclick', () => this.maximize());
+  }
+
+  _setupResize() {
+    this.el.querySelectorAll('.hc-rz').forEach(rz => {
+      rz.addEventListener('mousedown', e => {
+        if (this.maximized) return;
+        e.preventDefault();
+        e.stopPropagation();
+        this.mgr.bringToFront(this);
+        const dir = rz.dataset.dir;
+        const sb  = this._getBounds();
+        const sx  = e.clientX, sy = e.clientY;
+        const overlay = document.createElement('div');
+        overlay.style.cssText = `position:fixed;inset:0;z-index:99999;cursor:${dir}-resize`;
+        document.body.appendChild(overlay);
+        const onMove = me => {
+          const dx = me.clientX - sx, dy = me.clientY - sy;
+          let { left, top, width, height } = sb;
+          if (dir.includes('e')) width  = Math.max(320, width  + dx);
+          if (dir.includes('s')) height = Math.max(180, height + dy);
+          if (dir.includes('w')) { left += dx; width  = Math.max(320, width  - dx); }
+          if (dir.includes('n')) { top  += dy; height = Math.max(180, height - dy); }
+          this._setBounds(left, top, width, height);
+        };
+        const onUp = () => {
+          overlay.remove();
+          document.removeEventListener('mousemove', onMove);
+          document.removeEventListener('mouseup', onUp);
+        };
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+      });
+    });
+  }
+}
+
+// ============================================================================
+// AppManager — desktop UI, connection management, app launching, message bridge
+// ============================================================================
+class AppManager {
+  constructor(rootEl) {
+    this.root     = rootEl;
+    this.client   = null;
+    this.wm       = null;
+    this._appList = [];
+    this._launcherWin = null;
+  }
+
+  init() {
+    if (!document.getElementById('hc-mgr-styles')) {
+      const s = document.createElement('style');
+      s.id = 'hc-mgr-styles';
+      s.textContent = _HC_STYLES;
+      document.head.appendChild(s);
+    }
+    this._buildDesktop();
+  }
+
+  _buildDesktop() {
+    const desktop = document.createElement('div');
+    desktop.id = 'hc-desktop';
+    desktop.innerHTML = `
+      <div id="hc-cov">
+        <div class="hc-card">
+          <h1>🏠 HomeChannel</h1>
+          <form id="hc-cform" autocomplete="on">
+            <div class="hc-fg">
+              <label for="hc-url">Coordinator URL</label>
+              <input id="hc-url" type="url" name="hc-url" placeholder="https://coordinator.example.com" required />
+            </div>
+            <div class="hc-fg">
+              <label for="hc-key">Server Public Key</label>
+              <textarea id="hc-key" name="hc-key" placeholder="Paste PEM or base64 public key" rows="3" required></textarea>
+            </div>
+            <div class="hc-fg">
+              <label for="hc-pass">Password</label>
+              <input id="hc-pass" type="password" name="hc-pass" placeholder="Enter password" required />
+            </div>
+            <button class="hc-submit" id="hc-cbtn" type="submit">Connect</button>
+            <p class="hc-c-status" id="hc-cstat"></p>
+          </form>
+        </div>
+      </div>
+      <div id="hc-tb">
+        <button id="hc-tb-start">📦 Apps</button>
+        <div id="hc-tb-apps"></div>
+        <button id="hc-tb-disco">Disconnect</button>
+      </div>
+    `;
+    this.root.innerHTML = '';
+    this.root.appendChild(desktop);
+    this.wm = new WindowManager(desktop);
+
+    // Restore saved values
+    try {
+      const u = localStorage.getItem('hc_url');
+      const k = localStorage.getItem('hc_key');
+      const p = localStorage.getItem('hc_pass');
+      if (u) desktop.querySelector('#hc-url').value = u;
+      if (k) desktop.querySelector('#hc-key').value = k;
+      if (p) desktop.querySelector('#hc-pass').value = p;
+    } catch (_) {}
+
+    // URL-embedded server key
+    try {
+      const ep = new URLSearchParams(location.search).get('serverKey');
+      if (ep) desktop.querySelector('#hc-key').value = decodeURIComponent(ep);
+    } catch (_) {}
+
+    desktop.querySelector('#hc-cform').addEventListener('submit', async e => {
+      e.preventDefault();
+      const url  = desktop.querySelector('#hc-url').value.trim();
+      const key  = desktop.querySelector('#hc-key').value.trim();
+      const pass = desktop.querySelector('#hc-pass').value;
+      try {
+        localStorage.setItem('hc_url', url);
+        localStorage.setItem('hc_key', key);
+        localStorage.setItem('hc_pass', pass);
+      } catch (_) {}
+      await this._doConnect(url, key, pass);
+    });
+
+    desktop.querySelector('#hc-tb-start').addEventListener('click',  () => this._openLauncher());
+    desktop.querySelector('#hc-tb-disco').addEventListener('click',  () => this._doDisconnect());
+  }
+
+  _setStatus(msg, isErr = false) {
+    const el = document.getElementById('hc-cstat');
+    if (!el) return;
+    el.textContent = msg;
+    el.className = 'hc-c-status' + (isErr ? ' err' : '');
+  }
+
+  async _doConnect(url, key, pass) {
+    const btn = document.getElementById('hc-cbtn');
+    if (btn) btn.disabled = true;
+    this._setStatus('Connecting\u2026');
+    try {
+      this.client = new Client(url);
+      this.client.on('error',        err  => this._setStatus(err.message || 'Error', true));
+      this.client.on('disconnected', ()   => this._onDisconnected());
+      await this.client.connect(key, pass);
+      this._setStatus('');
+      await this._onConnected();
+    } catch (err) {
+      this._setStatus(err.message || 'Connection failed', true);
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  async _onConnected() {
+    document.getElementById('hc-cov').style.display = 'none';
+    document.getElementById('hc-tb').classList.add('hc-visible');
+    try {
+      this._appList = await this.client.requestAppList();
+    } catch (_) {
+      this._appList = [];
+    }
+    this._openLauncher();
+  }
+
+  _onDisconnected() {
+    this._appList = [];
+    document.getElementById('hc-tb')?.classList.remove('hc-visible');
+    const cov = document.getElementById('hc-cov');
+    if (cov) cov.style.display = '';
+    const btn = document.getElementById('hc-cbtn');
+    if (btn) btn.disabled = false;
+    this._setStatus('Disconnected');
+    [...(this.wm?.windows || [])].forEach(w => w.mgr.removeWindow(w));
+    this._launcherWin = null;
+  }
+
+  _doDisconnect() {
+    try { this.client?.disconnect?.(); } catch (_) {}
+    this._onDisconnected();
+  }
+
+  _openLauncher() {
+    if (this._launcherWin && this.wm.windows.includes(this._launcherWin)) {
+      if (this._launcherWin.minimized) this._launcherWin.restore();
+      else this.wm.bringToFront(this._launcherWin);
+      return;
+    }
+    const win = this.wm.createWindow('App Launcher', { icon: '📦', w: 340, h: 400 });
+    this._launcherWin = win;
+    win.onClose = () => { this._launcherWin = null; };
+    const apps = this._appList;
+    if (!apps || apps.length === 0) {
+      win.showError('No apps available');
+      return;
+    }
+    const inner = document.createElement('div');
+    inner.className = 'hc-launcher-body';
+    for (const app of apps) {
+      const btn = document.createElement('button');
+      btn.className = 'hc-app-btn';
+      btn.innerHTML =
+        `<span class="anic">📁</span>` +
+        `<span class="nfo"><strong>${_hcEsc(app.name)}</strong>` +
+        `<small>v${_hcEsc(String(app.version || '1.0'))}</small></span>`;
+      btn.addEventListener('click', () => this.launchApp(app.name));
+      inner.appendChild(btn);
+    }
+    win.el.querySelector('.hc-wbody').innerHTML = '';
+    win.el.querySelector('.hc-wbody').appendChild(inner);
+    this._addTaskbarBtn(win, `📦 Launcher`);
+  }
+
+  async launchApp(appName) {
+    const win = this.wm.createWindow(appName, { icon: '📁', w: 960, h: 620 });
+    win.showLoading(`Opening ${appName}\u2026`);
+    this._addTaskbarBtn(win, `📁 ${appName}`);
+    try {
+      const channel = await this.client.openAppChannel(appName);
+      this._setupAppBridge(win, channel, appName);
+    } catch (err) {
+      win.showError(`Failed to open ${appName}: ${err.message}`);
+    }
+  }
+
+  _addTaskbarBtn(win, label) {
+    const tb = document.getElementById('hc-tb-apps');
+    if (!tb) return;
+    const btn = document.createElement('button');
+    btn.className = 'hc-tb-task active';
+    btn.textContent = label;
+    btn.addEventListener('click', () => {
+      if (win.minimized) win.restore();
+      else if (win.el.classList.contains('hc-focused')) win.minimize();
+      else this.wm.bringToFront(win);
+    });
+    tb.appendChild(btn);
+    win._tbBtn = btn;
+    win.el.addEventListener('mousedown', () => {
+      tb.querySelectorAll('.hc-tb-task').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    });
+    // Remove taskbar button when window is closed
+    const origClose = win.onClose;
+    win.onClose = () => { btn.remove(); if (origClose) origClose(); };
+  }
+
+  /**
+   * Wire a DataChannel to a window's iframe via postMessage bridge.
+   * Binary protocol: FRAME_JSON for RPC, FRAME_CHUNK for file data, FRAME_END for end.
+   * Downloads are triggered in the parent frame (sandboxed iframe cannot trigger downloads).
+   */
+  _setupAppBridge(win, channel, appName) {
+    let activeDL = null;  // active streaming download state
+    const uploads = new Map();  // requestId → true, track pending uploads
+    let _nextId = 0;
+    const dec = new TextDecoder();
+
+    // ── Outbound: iframe → datachannel ────────────────────────────────────────
+    const bridgeOut = evt => {
+      if (!evt.data || evt.source !== win._iframe?.contentWindow) return;
+      const msg = evt.data;
+      switch (msg.type) {
+        case 'channel:send':
+          if (typeof msg.data === 'string') {
+            try { channel.send(packFrame(FRAME_JSON, msg.data)); } catch (_) {}
+          }
+          break;
+        case 'channel:download': {
+          const reqId = `dl_${++_nextId}`;
+          activeDL = {
+            requestId: reqId,
+            name: String(msg.name || 'download'),
+            mimeType: 'application/octet-stream',
+            size: 0, chunks: [], received: 0
+          };
+          try {
+            channel.send(packFrame(FRAME_JSON, JSON.stringify({
+              requestId: reqId, operation: 'readFile', params: { path: msg.path }
+            })));
+          } catch (_) {}
+          break;
+        }
+        case 'channel:upload:start':
+          uploads.set(msg.requestId, true);
+          try {
+            channel.send(packFrame(FRAME_JSON, JSON.stringify({
+              requestId: msg.requestId, operation: 'writeFile',
+              params: { path: msg.path, size: msg.size }
+            })));
+          } catch (_) {}
+          break;
+        case 'channel:chunk':
+          if (msg.buffer instanceof ArrayBuffer) {
+            try { channel.send(packFrame(FRAME_CHUNK, msg.buffer)); } catch (_) {}
+          }
+          break;
+        case 'channel:upload:end':
+          uploads.delete(msg.requestId);
+          try { channel.send(packFrame(FRAME_END, JSON.stringify({ requestId: msg.requestId }))); } catch (_) {}
+          break;
+        case 'channel:cancel':
+          uploads.delete(msg.requestId);
+          try { channel.send(packFrame(FRAME_CANCEL, JSON.stringify({ requestId: msg.requestId }))); } catch (_) {}
+          break;
+      }
+    };
+    window.addEventListener('message', bridgeOut);
+
+    // Set up close handler before bundle arrives (will be wrapped by _addTaskbarBtn)
+    const origClose = win.onClose;
+    win.onClose = () => {
+      win._iframe = null;
+      window.removeEventListener('message', bridgeOut);
+      try { channel.close(); } catch (_) {}
+      if (origClose) origClose();
+    };
+
+    channel.onclose = () => { window.removeEventListener('message', bridgeOut); };
+
+    // ── Inbound: datachannel → iframe / parent frame ──────────────────────────
+    channel.onmessage = event => {
+      const rawData = event.data;
+      const iframeWin = win._iframe?.contentWindow;
+
+      // Handle plain string (old protocol fallback)
+      if (typeof rawData === 'string') {
+        try {
+          const parsed = JSON.parse(rawData);
+          if (parsed.type === 'app:bundle' && parsed.bundle) {
+            this._loadBundle(win, appName, parsed.bundle);
+          } else if (iframeWin) {
+            iframeWin.postMessage({ type: 'channel:message', data: rawData }, '*');
+          }
+        } catch (_) {}
+        return;
+      }
+
+      // Binary frame
+      let ft, payload;
+      try {
+        const ab = rawData instanceof ArrayBuffer ? rawData
+          : (ArrayBuffer.isView(rawData)
+             ? rawData.buffer.slice(rawData.byteOffset, rawData.byteOffset + rawData.byteLength)
+             : null);
+        if (!ab) return;
+        ({ type: ft, payload } = unpackFrame(ab));
+      } catch (_) { return; }
+
+      if (ft === FRAME_JSON) {
+        const text = dec.decode(payload);
+        let msg;
+        try { msg = JSON.parse(text); } catch { return; }
+
+        if (msg.type === 'app:bundle' && msg.bundle) {
+          this._loadBundle(win, appName, msg.bundle);
+        } else if (activeDL && msg.requestId === activeDL.requestId && msg.streaming) {
+          activeDL.size     = msg.result?.size ?? 0;
+          activeDL.mimeType = msg.result?.mimeType ?? 'application/octet-stream';
+          iframeWin?.postMessage({ type: 'download:progress', name: activeDL.name, received: 0, total: activeDL.size }, '*');
+        } else if (iframeWin) {
+          iframeWin.postMessage({ type: 'channel:message', data: text }, '*');
+        }
+      } else if (ft === FRAME_CHUNK && activeDL) {
+        activeDL.chunks.push(payload.slice(0));
+        activeDL.received += payload.byteLength;
+        iframeWin?.postMessage({ type: 'download:progress', name: activeDL.name, received: activeDL.received, total: activeDL.size }, '*');
+      } else if (ft === FRAME_END) {
+        let endMeta = {};
+        try { endMeta = JSON.parse(dec.decode(payload)); } catch (_) {}
+        if (activeDL && (!endMeta.requestId || endMeta.requestId === activeDL.requestId)) {
+          const dl = activeDL;
+          activeDL = null;
+          // Assemble full file and trigger download from parent frame (bypasses sandbox restriction)
+          const total = dl.chunks.reduce((s, c) => s + c.byteLength, 0);
+          const out = new Uint8Array(total);
+          let off = 0;
+          for (const chunk of dl.chunks) { out.set(new Uint8Array(chunk), off); off += chunk.byteLength; }
+          const blob = new Blob([out], { type: dl.mimeType });
+          const url  = URL.createObjectURL(blob);
+          const a    = document.createElement('a');
+          a.href = url; a.download = dl.name;
+          document.body.appendChild(a); a.click(); document.body.removeChild(a);
+          setTimeout(() => URL.revokeObjectURL(url), 3000);
+          iframeWin?.postMessage({ type: 'download:done', name: dl.name }, '*');
+        }
+      }
+    };
+  }
+
+  /** Load the app bundle into the window body */
+  _loadBundle(win, appName, bundle) {
+    win.el.querySelector('.hc-wbody').innerHTML = '';
+    const iframe = this.client.loadAppInSandbox(appName, bundle, win.el.querySelector('.hc-wbody'));
+    win._iframe = iframe;
+  }
+}
+
+// ============================================================================
 // Exports (works as both ES module and script tag)
 // ============================================================================
 
 // Expose via globalThis - works in browser (classic script or module) and Node.js
 // Using globalThis avoids the 'export' keyword which is a SyntaxError in classic scripts
-globalThis.HomeChannelClient = { Client, verifySignature, hashChallengeAnswer };
+globalThis.HomeChannelClient = { Client, AppManager, verifySignature, hashChallengeAnswer };
